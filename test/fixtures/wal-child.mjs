@@ -3,8 +3,7 @@ import process from "node:process";
 import { setInterval } from "node:timers";
 
 const [mode, dir, count = "0"] = process.argv.slice(2);
-const measured = mode === "cursor" || mode === "compact";
-const baseline = measured ? process.memoryUsage.rss() : 0;
+const baseline = mode === "cursor" ? process.memoryUsage.rss() : 0;
 const wal = createWal({
   dir,
   compactInterval: mode === "timer" ? 60_000 : null,
@@ -19,10 +18,13 @@ if (mode === "append") {
   setInterval(() => {}, 60_000);
 } else if (mode === "compact") {
   wal.checkpoint(Number(count));
+  // Measured from here rather than from process start, so the figure is what
+  // compaction itself allocates. Anchoring at startup would fold in Node's boot
+  // and the open scan's uncollected garbage, which vary by platform and were
+  // enough to push a passing run over the limit on Linux but not on Windows.
+  const before = process.memoryUsage.rss();
   wal.compact();
-  // Sampled before anything else allocates, so a materializing compaction would
-  // still be visible in RSS here rather than hidden by a later collection.
-  const rssGrowth = process.memoryUsage.rss() - baseline;
+  const rssGrowth = process.memoryUsage.rss() - before;
   wal.close();
   process.send?.({ rssGrowth });
   process.disconnect?.();
