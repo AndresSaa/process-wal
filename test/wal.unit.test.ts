@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { createWal } from "../src/index.js";
+import { createNoopWal, createWal } from "../src/index.js";
 import { cleanupTempDirs, tempDir } from "./helpers.js";
 
 afterEach(cleanupTempDirs);
@@ -203,5 +203,22 @@ describe("cursor", () => {
 
     expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
     wal.close();
+  });
+});
+
+describe("createNoopWal", () => {
+  it("keeps the same lifecycle shape without touching disk", async () => {
+    const wal = createNoopWal<string>();
+
+    expect(wal.append("one")).toBe(1);
+    expect(wal.append("two")).toBe(2);
+    expect(wal.replay()).toEqual([]);
+    expect(await collect(wal.cursor())).toEqual([]);
+    wal.checkpoint(2);
+    wal.compact();
+    wal.close();
+    expect(() => wal.append("closed")).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
   });
 });
