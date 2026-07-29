@@ -1,0 +1,29 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vitest/
+.eslintcache
+*.tsbuildinfo
+*.tgz
+
+# Local WAL and temporary data
+data/
+tmp/
+temp/
+history/
+*.tmp
+*.log
+
+# Local environment and tools
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.claude/settings.local.json
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

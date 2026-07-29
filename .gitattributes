@@ -1,0 +1,6 @@
+# Normalize every text file to LF in the repository *and* in the working tree.
+# Without eol=lf, a Windows checkout with core.autocrlf=true produces CRLF files
+# that `prettier --check` rejects, so the same commit passes lint on Linux and
+# fails on the Windows CI leg. .gitattributes wins over core.autocrlf, so this
+# settles it for every contributor regardless of their local git config.
+* text=auto eol=lf
