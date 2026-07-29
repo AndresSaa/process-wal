@@ -27,6 +27,9 @@
     "CHANGELOG.md"
   ],
   "sideEffects": false,
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "test": "npm run build && vitest run",
