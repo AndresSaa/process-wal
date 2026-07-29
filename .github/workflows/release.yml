@@ -1,0 +1,77 @@
+name: Release
+
+# A release is a tag push, never an automatic reaction to a merge: the version
+# bump lands as an ordinary reviewed pull request first, and tagging is the
+# deliberate second step that publishes it.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write creates the GitHub Release. id-token: write mints the
+      # OIDC token npm exchanges for a short-lived credential — it is the whole
+      # reason no publish token lives in this repository.
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Node 22 ships npm 10, but trusted publishing needs 11.5.1 or newer. On
+      # an older CLI the OIDC handshake never happens and npm falls back to an
+      # anonymous request, which the registry reports as a misleading 404.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Verify the tag matches package.json
+        # A tag disagreeing with the manifest would publish a version nobody
+        # reviewed, and npm versions are immutable once taken. Fail before that.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag does not match package.json $manifest" >&2
+            exit 1
+          fi
+
+      # The artifact that ships must be the one the matrix approved, so the full
+      # gate runs again here rather than trusting the pull request's green tick.
+      - run: npm run lint
+      - run: npm test
+      - run: npm run lint:package
+
+      # No NODE_AUTH_TOKEN: authentication and the provenance attestation both
+      # come from OIDC. publishConfig in package.json carries --access public
+      # and --provenance.
+      - run: npm publish
+
+      - name: Create the GitHub Release from the changelog entry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v heading="## [$version]" '
+            index($0, heading) == 1 { capturing = 1; next }
+            capturing && /^## \[/ { exit }
+            capturing { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "no CHANGELOG.md section found for $version" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag

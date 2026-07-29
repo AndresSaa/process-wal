@@ -1,6 +1,6 @@
 {
   "name": "process-wal",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "A zero-dependency write-ahead log for Node.js process-restart durability",
   "license": "MIT",
   "type": "module",
@@ -27,6 +27,10 @@
     "CHANGELOG.md"
   ],
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "overrides": {
     "esbuild": "^0.28.1"
   },

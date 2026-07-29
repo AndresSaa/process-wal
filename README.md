@@ -8,6 +8,7 @@
 ```
 
 [![CI](https://github.com/AndresSaa/process-wal/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndresSaa/process-wal/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/process-wal?logo=npm&color=cb3837)](https://www.npmjs.com/package/process-wal)
 [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)](package.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-pure-3178C6?logo=typescript&logoColor=white)](src)
 [![Runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-2ea44f)](package.json)
@@ -36,8 +37,9 @@ Requires Node.js 22 or newer.
 npm install process-wal
 ```
 
-The implementation is complete, but the package remains unreleased at `0.0.0`.
-The command above applies after the first npm release.
+Published with [provenance](https://docs.npmjs.com/generating-provenance-statements),
+so the npm artifact is cryptographically linked to the commit and workflow that
+built it.
 
 ## Quick start
 
@@ -342,8 +344,12 @@ npm run lint:package
 CI runs lint, coverage, package validation, and the durability suite on Node 22
 and 24 across Linux, macOS, and Windows.
 
-Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Until the release
-tooling lands, user-visible changes are recorded under `[Unreleased]`.
+Release notes live in [CHANGELOG.md](CHANGELOG.md), written by hand. A release is
+a merged version bump followed by a `vX.Y.Z` tag, which publishes to npm over
+OIDC — no publish token exists in this repository.
+
+`process-wal` is `1.0.0`, so the API and the durability contract above are a
+commitment: breaking either is a major version, not a patch.
 
 ## License
 
