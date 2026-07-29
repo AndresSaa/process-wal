@@ -5,7 +5,10 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-07-29
+
+First stable release. The API in the README is closed and the durability
+contract is a commitment: any change to it from here is a major version.
 
 ### Added
 

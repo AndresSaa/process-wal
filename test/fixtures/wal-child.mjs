@@ -3,7 +3,10 @@ import process from "node:process";
 import { setInterval } from "node:timers";
 
 const [mode, dir, count = "0"] = process.argv.slice(2);
-const baseline = mode === "cursor" ? process.memoryUsage.rss() : 0;
+// Both memory probes below sample their baseline *after* createWal returns.
+// Anchoring at process start would fold in Node's boot cost and whatever the
+// open scan left uncollected — neither of which the operation under test
+// allocates, and both of which drift between platforms and Node versions.
 const wal = createWal({
   dir,
   compactInterval: mode === "timer" ? 60_000 : null,
@@ -18,10 +21,6 @@ if (mode === "append") {
   setInterval(() => {}, 60_000);
 } else if (mode === "compact") {
   wal.checkpoint(Number(count));
-  // Measured from here rather than from process start, so the figure is what
-  // compaction itself allocates. Anchoring at startup would fold in Node's boot
-  // and the open scan's uncollected garbage, which vary by platform and were
-  // enough to push a passing run over the limit on Linux but not on Windows.
   const before = process.memoryUsage.rss();
   wal.compact();
   const rssGrowth = process.memoryUsage.rss() - before;
@@ -29,7 +28,8 @@ if (mode === "append") {
   process.send?.({ rssGrowth });
   process.disconnect?.();
 } else if (mode === "cursor") {
-  let peak = Math.max(baseline, process.memoryUsage.rss());
+  const before = process.memoryUsage.rss();
+  let peak = before;
   let entries = 0;
   let lastSeq = 0;
   for await (const entry of wal.cursor()) {
@@ -38,7 +38,7 @@ if (mode === "append") {
     peak = Math.max(peak, process.memoryUsage.rss());
   }
   wal.close();
-  process.send?.({ entries, lastSeq, rssGrowth: peak - baseline });
+  process.send?.({ entries, lastSeq, rssGrowth: peak - before });
   process.disconnect?.();
 } else {
   process.send?.("ready");
