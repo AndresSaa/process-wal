@@ -36,6 +36,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "prepack": "npm run build",
     "test": "npm run build && vitest run",
     "test:watch": "npm run build && vitest",
     "bench": "vitest bench --run --passWithNoTests",
