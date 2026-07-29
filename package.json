@@ -29,10 +29,10 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
-    "test": "npm run build && vitest run --passWithNoTests",
+    "test": "npm run build && vitest run",
     "test:watch": "npm run build && vitest",
     "bench": "vitest bench --run --passWithNoTests",
-    "coverage": "npm run build && vitest run --coverage --passWithNoTests",
+    "coverage": "npm run build && vitest run --coverage",
     "lint": "tsc --noEmit && eslint . && prettier . --check",
     "lint:package": "publint --strict && attw --pack ."
   },

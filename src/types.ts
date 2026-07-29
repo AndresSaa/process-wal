@@ -12,3 +12,16 @@ export interface WalEntry<T = unknown> {
   seq: number;
   value: T;
 }
+
+export interface Wal<T = unknown> {
+  /** Persist a JSON-serializable value before returning its sequence number. */
+  append(value: T): number;
+  /** Mark every entry through seq as processed. */
+  checkpoint(seq: number): void;
+  /** Materialize entries newer than the current checkpoint. */
+  replay(): Array<WalEntry<T>>;
+  /** Atomically remove checkpointed records from the log. */
+  compact(): void;
+  /** Release the writer. */
+  close(): void;
+}
