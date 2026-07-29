@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import { join } from "node:path";
+import { debuglog } from "node:util";
+import { createFrozenCursor } from "./cursor.js";
 import {
   healTail,
   readCheckpoint,
@@ -9,8 +11,9 @@ import {
   syncDirectory,
   writeSurvivors,
 } from "./storage.js";
-import type { Wal, WalEntry, WalOptions } from "./types.js";
+import type { CursorOptions, Wal, WalEntry, WalOptions } from "./types.js";
 
+const debug = debuglog("process-wal");
 const DEFAULT_MAX_ENTRY_BYTES = 1 << 20;
 
 type CodedError = Error & { code: string };
@@ -52,6 +55,8 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   let lastSeq = Math.max(checkpointSeq, scanLastSeq<T>(walPath));
   let fd = fs.openSync(walPath, "a");
   let closed = false;
+  let activeCursors = 0;
+  let compactPending = false;
   let timer: NodeJS.Timeout | undefined;
 
   const assertOpen = (): void => {
@@ -109,8 +114,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     return readEntries<T>(walPath).filter((entry) => entry.seq > checkpointSeq);
   };
 
-  const compact = (): void => {
-    assertOpen();
+  const compactNow = (): void => {
     const tmp = `${walPath}.tmp`;
     writeSurvivors(walPath, tmp, checkpointSeq, fsync);
     // Closing the writer is required before replacing its file on Windows.
@@ -121,6 +125,39 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
       fd = fs.openSync(walPath, "a");
     }
     if (fsync) syncDirectory(dir);
+    compactPending = false;
+  };
+
+  const releaseCursor = (): void => {
+    activeCursors -= 1;
+    if (!closed && activeCursors === 0 && compactPending) compactNow();
+  };
+
+  const cursor = ({ fromSeq = 0 }: CursorOptions = {}): AsyncIterableIterator<
+    WalEntry<T>
+  > => {
+    assertOpen();
+    checkSeq(fromSeq, "fromSeq");
+    // The checkpoint and byte length form an immutable view even as appends
+    // continue. The cursor owns its descriptor until iteration finishes.
+    const snapshot = createFrozenCursor<T>({
+      walPath,
+      checkpointSeq,
+      fromSeq,
+      onRelease: releaseCursor,
+    });
+    activeCursors += 1;
+    return snapshot;
+  };
+
+  const compact = (): void => {
+    assertOpen();
+    if (activeCursors > 0) {
+      compactPending = true;
+      debug("compaction deferred while %d cursor(s) are open", activeCursors);
+      return;
+    }
+    compactNow();
   };
 
   const close = (): void => {
@@ -148,5 +185,5 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     timer.unref();
   }
 
-  return { append, checkpoint, replay, compact, close };
+  return { append, checkpoint, replay, cursor, compact, close };
 }
