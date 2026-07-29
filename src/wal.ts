@@ -6,6 +6,7 @@ import {
   readEntries,
   replaceFile,
   scanLastSeq,
+  syncDirectory,
   writeSurvivors,
 } from "./storage.js";
 import type { Wal, WalEntry, WalOptions } from "./types.js";
@@ -27,6 +28,7 @@ function checkSeq(seq: number, label: string): void {
 export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   const {
     dir = "./data",
+    fsync = false,
     compactInterval = null,
     maxEntryBytes = DEFAULT_MAX_ENTRY_BYTES,
   } = options;
@@ -44,7 +46,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   const walPath = join(dir, "wal.jsonl");
   const checkpointPath = join(dir, "wal.checkpoint");
   // Recovery must finish before the append descriptor is opened.
-  healTail(walPath);
+  healTail(walPath, fsync);
 
   let checkpointSeq = readCheckpoint(checkpointPath);
   let lastSeq = Math.max(checkpointSeq, scanLastSeq<T>(walPath));
@@ -85,7 +87,9 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     let offset = 0;
     while (offset < data.length)
       offset += fs.writeSync(fd, data, offset, data.length - offset);
-    // Publish the seq only after the full record reaches the kernel.
+    if (fsync) fs.fsyncSync(fd);
+    // Publish the seq only after the full record reaches the selected
+    // durability boundary (page cache, or storage when fsync is enabled).
     lastSeq = next;
     return lastSeq;
   };
@@ -94,7 +98,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     assertOpen();
     checkSeq(nextCheckpoint, "checkpoint");
     if (nextCheckpoint <= checkpointSeq) return;
-    replaceFile(checkpointPath, String(nextCheckpoint));
+    replaceFile(checkpointPath, String(nextCheckpoint), fsync, dir);
     // Memory advances only after the atomic replacement succeeds.
     checkpointSeq = nextCheckpoint;
     lastSeq = Math.max(lastSeq, nextCheckpoint);
@@ -108,7 +112,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   const compact = (): void => {
     assertOpen();
     const tmp = `${walPath}.tmp`;
-    writeSurvivors(walPath, tmp, checkpointSeq);
+    writeSurvivors(walPath, tmp, checkpointSeq, fsync);
     // Closing the writer is required before replacing its file on Windows.
     fs.closeSync(fd);
     try {
@@ -116,11 +120,13 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     } finally {
       fd = fs.openSync(walPath, "a");
     }
+    if (fsync) syncDirectory(dir);
   };
 
   const close = (): void => {
     assertOpen();
     if (timer) clearInterval(timer);
+    if (fsync) fs.fsyncSync(fd);
     fs.closeSync(fd);
     closed = true;
   };

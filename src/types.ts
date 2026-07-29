@@ -1,6 +1,8 @@
 export interface WalOptions {
   /** Directory that owns wal.jsonl and wal.checkpoint. Default: ./data. */
   dir?: string;
+  /** Flush each mutation to storage instead of stopping at the page cache. */
+  fsync?: boolean;
   /** Run compaction on an unref'ed timer, or disable it with null. */
   compactInterval?: number | null;
   /** Maximum UTF-8 bytes for one complete JSONL record. Default: 1 MiB. */
@@ -22,6 +24,6 @@ export interface Wal<T = unknown> {
   replay(): Array<WalEntry<T>>;
   /** Atomically remove checkpointed records from the log. */
   compact(): void;
-  /** Release the writer. */
+  /** Flush when configured and release the writer. */
   close(): void;
 }
