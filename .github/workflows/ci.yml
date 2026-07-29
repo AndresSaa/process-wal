@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered. Filtering on `branches` matches the *base* branch,
+  # so a stacked pull request aimed at another feature branch would run no CI at
+  # all — which is exactly how six merged pull requests once reached a branch
+  # without a single matrix run behind them.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

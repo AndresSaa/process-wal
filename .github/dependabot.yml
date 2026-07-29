@@ -9,6 +9,17 @@ updates:
       dev-dependencies:
         patterns:
           - "*"
+    ignore:
+      # typescript-eslint constrains typescript with a peer range, so a major
+      # bump arriving on its own makes `npm ci` fail before any test runs. Move
+      # the two together, by hand.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks the engines floor (Node 22), not the newest release:
+      # newer types would let code compile against APIs the supported runtime
+      # does not have.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore"
       include: "scope"
