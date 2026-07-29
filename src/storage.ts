@@ -77,6 +77,7 @@ export function writeSurvivors(
   source: string,
   target: string,
   keepAbove: number,
+  durable: boolean,
 ): void {
   const input = fs.openSync(source, "r");
   const output = fs.openSync(target, "w");
@@ -104,6 +105,7 @@ export function writeSurvivors(
       for (const line of lines) keep(line);
     } while (bytesRead > 0);
     keep(pending + decoder.end());
+    if (durable) fs.fsyncSync(output);
   } finally {
     // The reader must let go before the caller can rename over the live file.
     fs.closeSync(input);
@@ -125,13 +127,34 @@ export function readCheckpoint(path: string): number {
   return 0;
 }
 
-export function replaceFile(path: string, contents: string): void {
-  // A crash may leave the tmp file behind, but never a half-written checkpoint.
-  fs.writeFileSync(`${path}.tmp`, contents, "utf8");
-  fs.renameSync(`${path}.tmp`, path);
+export function syncDirectory(dir: string): void {
+  // POSIX needs the directory entry flushed after rename; Node does not expose
+  // a portable directory fsync on Windows.
+  if (process.platform === "win32") return;
+  const fd = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
-export function healTail(path: string): void {
+export function replaceFile(
+  path: string,
+  contents: string,
+  durable: boolean,
+  dir: string,
+): void {
+  // A crash may leave the tmp file behind, but never a half-written checkpoint.
+  fs.writeFileSync(`${path}.tmp`, contents, {
+    encoding: "utf8",
+    flush: durable,
+  });
+  fs.renameSync(`${path}.tmp`, path);
+  if (durable) syncDirectory(dir);
+}
+
+export function healTail(path: string, durable: boolean): void {
   let fd: number;
   try {
     fd = fs.openSync(path, "r+");
@@ -161,6 +184,7 @@ export function healTail(path: string): void {
     }
     if (length === size) return;
     fs.ftruncateSync(fd, length);
+    if (durable) fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
   }

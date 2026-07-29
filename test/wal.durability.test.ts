@@ -86,6 +86,20 @@ describe("restart and corruption recovery", () => {
     expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
   });
 
+  it("executes append, checkpoint, compaction and close in fsync mode", () => {
+    const dir = tempDir();
+    const first = createWal<string>({ dir, fsync: true });
+    first.append("one");
+    first.append("two");
+    first.checkpoint(1);
+    first.compact();
+    first.close();
+
+    const second = createWal<string>({ dir, fsync: true });
+    expect(second.replay()).toEqual([{ seq: 2, value: "two" }]);
+    second.close();
+  });
+
   it("does not silently skip corruption in the middle of the log", () => {
     const dir = tempDir();
     writeFileSync(
