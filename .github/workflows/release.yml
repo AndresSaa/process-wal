@@ -52,10 +52,21 @@ jobs:
       - run: npm test
       - run: npm run lint:package
 
-      # No NODE_AUTH_TOKEN: authentication and the provenance attestation both
-      # come from OIDC. publishConfig in package.json carries --access public
-      # and --provenance.
+      # TEMPORARY, for the first publish only. A trusted publisher cannot be
+      # registered on npm for a package that does not exist yet, so the OIDC
+      # handshake has nothing to match, npm falls back to an anonymous request,
+      # and the registry rejects it as a misleading 404. This token breaks that
+      # circle exactly once.
+      #
+      # Provenance is still attested: it comes from id-token: write above plus
+      # publishConfig.provenance, not from how the publish authenticates.
+      #
+      # Once 1.0.0 exists on npm, register the trusted publisher
+      # (AndresSaa/process-wal, release.yml), then revert this block and delete
+      # the NPM_TOKEN secret. See AGENTS.md → Versioning & changelog.
       - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create the GitHub Release from the changelog entry
         env:
