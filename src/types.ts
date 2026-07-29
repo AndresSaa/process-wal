@@ -15,6 +15,11 @@ export interface WalEntry<T = unknown> {
   value: T;
 }
 
+export interface CursorOptions {
+  /** Exclude entries at or below this sequence number. */
+  fromSeq?: number;
+}
+
 export interface Wal<T = unknown> {
   /** Persist a JSON-serializable value before returning its sequence number. */
   append(value: T): number;
@@ -22,6 +27,8 @@ export interface Wal<T = unknown> {
   checkpoint(seq: number): void;
   /** Materialize entries newer than the current checkpoint. */
   replay(): Array<WalEntry<T>>;
+  /** Stream a checkpoint and file-size snapshot without loading it all. */
+  cursor(options?: CursorOptions): AsyncIterableIterator<WalEntry<T>>;
   /** Atomically remove checkpointed records from the log. */
   compact(): void;
   /** Flush when configured and release the writer. */

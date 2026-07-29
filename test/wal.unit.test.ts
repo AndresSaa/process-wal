@@ -5,6 +5,12 @@ import { cleanupTempDirs, tempDir } from "./helpers.js";
 
 afterEach(cleanupTempDirs);
 
+async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+  const values: T[] = [];
+  for await (const value of iterable) values.push(value);
+  return values;
+}
+
 describe("createWal", () => {
   it("appends and replays values in sequence", () => {
     const wal = createWal<{ id: number }>({ dir: tempDir() });
@@ -72,6 +78,7 @@ describe("createWal", () => {
       () => wal.append("value"),
       () => wal.checkpoint(1),
       () => wal.replay(),
+      () => wal.cursor(),
       () => wal.compact(),
       () => wal.close(),
     ];
@@ -90,6 +97,7 @@ describe("createWal", () => {
 
     const wal = createWal({ dir: tempDir() });
     expect(() => wal.checkpoint(Number.NaN)).toThrow(RangeError);
+    expect(() => wal.cursor({ fromSeq: -1 })).toThrow(RangeError);
     wal.close();
   });
 
@@ -110,5 +118,90 @@ describe("createWal", () => {
     expect(readFileSync(`${dir}/wal.jsonl`, "utf8")).toBe(
       '{"seq":1,"value":{"ok":true}}\n',
     );
+  });
+});
+
+describe("cursor", () => {
+  it("matches replay and treats fromSeq as an exclusive high-water mark", async () => {
+    const wal = createWal<string>({ dir: tempDir() });
+    wal.append("one");
+    wal.append("two");
+    wal.append("three");
+
+    expect(await collect(wal.cursor({ fromSeq: 1 }))).toEqual(
+      wal.replay().slice(1),
+    );
+    wal.close();
+  });
+
+  it("freezes checkpoint and file size at creation", async () => {
+    const wal = createWal<string>({ dir: tempDir() });
+    wal.append("one");
+    wal.append("two");
+    const cursor = wal.cursor();
+
+    wal.checkpoint(2);
+    wal.append("three");
+
+    expect(await collect(cursor)).toEqual([
+      { seq: 1, value: "one" },
+      { seq: 2, value: "two" },
+    ]);
+    expect(wal.replay()).toEqual([{ seq: 3, value: "three" }]);
+    wal.close();
+  });
+
+  it("defers compaction until all cursors release their file descriptors", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("x".repeat(1_000));
+    wal.append("x".repeat(1_000));
+    wal.append("keep");
+    wal.checkpoint(2);
+    const first = wal.cursor();
+    const second = wal.cursor();
+    const before = statSync(`${dir}/wal.jsonl`).size;
+
+    wal.compact();
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(before);
+    await first.return?.();
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(before);
+    await collect(second);
+
+    expect(statSync(`${dir}/wal.jsonl`).size).toBeLessThan(before);
+    expect(wal.replay()).toEqual([{ seq: 3, value: "keep" }]);
+    wal.close();
+  });
+
+  it("releases its file descriptor when a consumer aborts with throw", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("done");
+    wal.checkpoint(1);
+    const cursor = wal.cursor();
+
+    await expect(cursor.throw?.(new Error("stop"))).rejects.toThrow("stop");
+    wal.compact();
+
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
+    wal.close();
+  });
+
+  it("releases its file descriptor when iteration stops after a value", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("done");
+    const cursor = wal.cursor({ fromSeq: 0 });
+    wal.checkpoint(1);
+    await expect(cursor.next()).resolves.toEqual({
+      done: false,
+      value: { seq: 1, value: "done" },
+    });
+    await cursor.return?.();
+
+    wal.compact();
+
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
+    wal.close();
   });
 });
