@@ -56,10 +56,16 @@
     "wal",
     "write-ahead-log",
     "durability",
-    "at-least-once",
     "crash-recovery",
+    "at-least-once",
     "persistence",
-    "queue"
+    "jsonl",
+    "append-only",
+    "zero-dependency",
+    "fsync",
+    "outbox",
+    "resume",
+    "idempotent"
   ],
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

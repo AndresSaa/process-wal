@@ -21,7 +21,10 @@ history/
 !.env.example
 .idea/
 .vscode/
+.history/
 .claude/settings.local.json
+.github/copilot-instructions.md
+.github/instructions/
 
 # OS metadata
 .DS_Store
