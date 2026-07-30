@@ -1,6 +1,6 @@
 {
   "name": "process-wal",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A zero-dependency write-ahead log for Node.js process-restart durability",
   "license": "MIT",
   "type": "module",
@@ -56,10 +56,16 @@
     "wal",
     "write-ahead-log",
     "durability",
-    "at-least-once",
     "crash-recovery",
+    "at-least-once",
     "persistence",
-    "queue"
+    "jsonl",
+    "append-only",
+    "zero-dependency",
+    "fsync",
+    "outbox",
+    "resume",
+    "idempotent"
   ],
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
