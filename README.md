@@ -88,13 +88,45 @@ Those are the defaults; every option can be omitted. Invalid values throw `Range
 
 A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
 
-Every method throws an error with `code: "ERR_WAL_CLOSED"` after `close()`. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+Every method except `close()` throws an error with `code: "ERR_WAL_CLOSED"` once the WAL is closed. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
 
-> [!IMPORTANT]
-> Two lifecycle details worth knowing before they surprise you:
->
-> - **`close()` is not idempotent.** A second call throws `ERR_WAL_CLOSED`. Guard it if your shutdown path can run twice.
-> - **A cursor owns its descriptor until it finishes.** Draining it, `break`ing out of a `for await`, or calling `return()` all release it. Abandoning one keeps the descriptor open for the life of the process, which locks the file on Windows and defers `compact()` indefinitely.
+### Disposal
+
+`close()` is idempotent. A `finally` and a `SIGTERM` handler both firing is correct shutdown code, so it does not need a guard:
+
+```ts
+process.once("SIGTERM", () => wal.close());
+try {
+  // …
+} finally {
+  wal.close(); // whichever runs second is a no-op
+}
+```
+
+Both the WAL and its cursors implement the disposal protocol, so scope can own them instead:
+
+```ts
+using wal = createWal<Job>({ dir: "./data" });
+
+for (const { seq, value } of wal.replay()) {
+  await handle(value);
+  wal.checkpoint(seq);
+}
+// wal.close() runs on the way out, including on a throw.
+```
+
+That matters most for cursors, because a cursor holds a file descriptor and a leaked one defers `compact()` for the life of the process and keeps the file locked on Windows. `await using` releases it on every exit path, early `return` included:
+
+```ts
+await using cursor = wal.cursor({ fromSeq: 0 });
+
+for await (const { seq, value } of cursor) {
+  if (await handle(value)) return; // descriptor still released
+  wal.checkpoint(seq);
+}
+```
+
+A plain `for await` over `wal.cursor()` already releases the descriptor when it completes, breaks, or throws — `await using` additionally covers manual iteration and early exits from the enclosing scope.
 
 ### Large backlogs
 
@@ -117,7 +149,7 @@ const wal = persistenceEnabled ? createWal(options) : createNoopWal();
 
 ## Examples
 
-Worked scenarios for every method — what each one is for, what it rejects, and the mistakes that cost you data — are in **[docs/examples.md](https://github.com/AndresSaa/process-wal/blob/main/docs/examples.md)**: batching checkpoints, resuming a cursor with `fromSeq`, releasing a cursor early, guarding a shutdown path that can run twice, swapping in `createNoopWal` for tests, and a complete webhook receiver that survives a deploy mid-request.
+Worked scenarios for every method — what each one is for, what it rejects, and the mistakes that cost you data — are in **[docs/examples.md](https://github.com/AndresSaa/process-wal/blob/main/docs/examples.md)**: batching checkpoints, resuming a cursor with `fromSeq`, releasing a cursor with `await using`, disposing the WAL from a scope, swapping in `createNoopWal` for tests, and a complete webhook receiver that survives a deploy mid-request.
 
 ## Durability model
 

@@ -216,7 +216,19 @@ for await (const entry of wal.cursor()) {
   if (entry.value.jobId === target) break;
 }
 
-// Fine — explicit release when you are not using for-await.
+// Better — the scope owns it, on every exit path including a throw.
+await using cursor = wal.cursor();
+
+for await (const { seq, value } of cursor) {
+  if (await handle(value)) return; // released anyway
+  wal.checkpoint(seq);
+}
+```
+
+`await using` is the one form that does not depend on remembering. Without it,
+manual iteration has to release by hand:
+
+```ts
 const cursor = wal.cursor();
 try {
   const first = await cursor.next();
@@ -262,24 +274,39 @@ descriptor.
 wal.close();
 ```
 
-**`close()` is not idempotent.** A second call throws `ERR_WAL_CLOSED`, as does
-every other method. If your shutdown path can run twice — a signal handler plus
-a `finally`, say — guard it:
+**`close()` is idempotent.** Calling it twice is a no-op, so the usual shutdown
+shape needs no guard — a `finally` and a signal handler both firing is correct
+code, not a bug:
 
 ```ts
-let closed = false;
+process.once("SIGTERM", () => wal.close());
+process.once("SIGINT", () => wal.close());
 
-function shutdown(): void {
-  if (closed) return;
-  closed = true;
-  wal.close();
+try {
+  await run();
+} finally {
+  wal.close(); // whichever runs second does nothing
 }
-
-process.once("SIGTERM", shutdown);
-process.once("SIGINT", shutdown);
 ```
 
-`close()` releases the writer. It does not release cursors other code is holding.
+Every _other_ method still throws `ERR_WAL_CLOSED` afterwards. That asymmetry is
+deliberate: releasing something twice is harmless, but an `append()` that
+quietly succeeded after close would drop work you had been promised was durable.
+
+`wal[Symbol.dispose]()` is an alias for `close()`, so a scope can own the WAL:
+
+```ts
+using wal = createWal<Job>({ dir: "./data" });
+
+for (const { seq, value } of wal.replay()) {
+  await handle(value);
+  wal.checkpoint(seq);
+}
+// close() runs here, including if the loop threw.
+```
+
+`close()` releases the writer. It does not release cursors other code is
+holding — give those their own `await using`.
 
 ## `createNoopWal`
 
@@ -405,11 +432,9 @@ app.post("/hook", express.json(), async (request, response) => {
 
 const server = app.listen(3000);
 
-let closed = false;
+// No guard needed: close() is idempotent, so both signals firing is fine.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
-    if (closed) return;
-    closed = true;
     server.close();
     wal.close();
   });
