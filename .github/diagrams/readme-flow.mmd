@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+
+    actor Producer
+    participant Service
+    participant WAL as process-wal
+    participant Downstream
+
+    Producer->>Service: Submit work
+    Service->>WAL: append(value)
+    WAL-->>Service: seq persisted
+    Service-->>Producer: Acknowledge
+
+    Service->>Downstream: Perform side effect
+    Downstream-->>Service: Success
+    Service->>WAL: checkpoint(seq)
+
+    Note over Service,WAL: After restart, replay entries<br/>that were not checkpointed

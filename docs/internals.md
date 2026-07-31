@@ -43,23 +43,18 @@ Comments explain only the non-obvious guarantees.
 
 ## The write-acknowledge-checkpoint cycle
 
-Source for the diagram rendered in the README:
+The diagram in the README is generated, not drawn. Its source is
+`.github/diagrams/readme-flow.mmd`, themed by
+`.github/diagrams/mermaid-theme.json`, and the image is rebuilt with:
 
-```mermaid
-sequenceDiagram
-    participant P as Producer
-    participant S as Service
-    participant W as process-wal
-    participant D as Downstream
-    P->>S: Work
-    S->>W: append(value)
-    W-->>S: seq after write
-    S-->>P: Acknowledge
-    S->>D: Apply side effect
-    D-->>S: Success
-    S->>W: checkpoint(seq)
-    Note over S,W: After restart, <br/>replay anything<br/> not checkpointed
+```sh
+npm run docs:diagram
 ```
+
+Edit the `.mmd`, re-run that, and commit both the source and the regenerated
+`.github/assets/readme-flow.webp`. The source is deliberately kept in one place:
+a second copy pasted into this page would drift from the image the moment either
+one changed.
 
 ## Origin
 

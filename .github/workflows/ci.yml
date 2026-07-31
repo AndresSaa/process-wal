@@ -26,6 +26,15 @@ jobs:
         node: [22, 24]
         os: [ubuntu-latest, macos-latest, windows-latest]
 
+    env:
+      # mermaid-cli is a dev dependency of the diagram renderer, and its
+      # Puppeteer would otherwise pull a ~150 MB Chromium into all six legs of
+      # this matrix. Nothing here renders a diagram — `check:diagrams` only
+      # compares hashes — so skipping the download saves the bandwidth and drops
+      # a network dependency that can fail a build for reasons unrelated to the
+      # code. A job that actually renders must not set this.
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -34,5 +43,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      # Catches a .mmd or theme edit that was never re-rendered. Deliberately a
+      # hash comparison and not an image comparison: Mermaid lays diagrams out
+      # with the host's fonts, and no two of these operating systems have the
+      # same ones, so regenerating here would differ from the committed asset on
+      # every run.
+      - run: npm run check:diagrams
       - run: npm run coverage
       - run: npm run lint:package
