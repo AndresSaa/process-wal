@@ -1,0 +1,97 @@
+name: Bug report
+description: Something behaves differently from what the documentation promises
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The details below exist because almost every bug
+        in this package lives in the recovery path, and that path depends on the
+        filesystem underneath it.
+
+        If this is a security vulnerability, please close this and follow
+        [SECURITY.md](https://github.com/AndresSaa/process-wal/blob/main/SECURITY.md)
+        instead — do not describe it in a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest code that shows it. If it only reproduces after a restart
+        or a crash, describe the state the WAL directory was in and the calls
+        that led there — that is usually the important part.
+      render: js
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: process-wal version
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`.
+      placeholder: "v22.22.2"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and filesystem
+      description: >
+        Include the filesystem and whether it is a container, network mount, or
+        virtualised disk. It matters more here than in most packages.
+      placeholder: "Ubuntu 24.04, ext4 in a Docker container on overlayfs"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fsync
+    attributes:
+      label: Durability mode
+      options:
+        - "fsync: false (default)"
+        - "fsync: true"
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: >
+            Only one process writes to this WAL directory. The package is
+            single-writer by design and does not lock.
+          required: true
+        - label: >
+            I have read the [durability model](https://github.com/AndresSaa/process-wal/blob/main/docs/durability.md)
+            and this is not the documented behaviour for a torn record, a
+            corrupt checkpoint, or power loss with `fsync: false`.
+          required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug output
+      description: >
+        Optional but useful. Re-run with `NODE_DEBUG=process-wal` to trace
+        heal-on-open, deferred compaction, and checkpoint fallback.
+      render: shell
