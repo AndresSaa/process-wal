@@ -24,6 +24,14 @@ Every row is a requirement, the decision it forced, and the cost that decision i
 | Replay     | O(log bytes)            | Materializes the log before filtering | Read only                                       |
 | Cursor     | O(snapshot bytes)       | Stream buffer plus current entry      | Own read descriptor; frozen end offset          |
 | Compact    | O(log bytes)            | One entry plus a 64 KiB scan buffer   | Temporary replacement; briefly needs extra disk |
+| Stats      | O(1)                    | Constant                              | None — reads counters, never the filesystem     |
+
+`stats()` is the only operation that touches no descriptor at all. Its counters
+are set by the open-time scan and maintained by append, checkpoint and
+compaction, which is what makes it safe to call on a metrics scrape. The one
+counter that is not free is `reclaimableBytes`: it needs the byte length of each
+pending record, because two logs with identical sequence numbers and total size
+can differ more than tenfold in what compaction would release.
 
 `replay()` is the only operation that materializes the log, which is why `cursor()` exists for backlogs that will not fit in memory comfortably. Open, compaction, and cursors all stream.
 
