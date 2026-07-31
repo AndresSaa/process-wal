@@ -130,7 +130,8 @@ wal.append({ blob: "x".repeat(2 ** 21) }); // ERR_ENTRY_TOO_LARGE
 
 Values round-trip through `JSON.parse`, so what comes back out of `replay()` is
 JSON, not your class. `Date` becomes a string; `undefined` properties disappear;
-`Map` and `Set` become `{}`. Serialize deliberately if it matters:
+`Map` and `Set` become `{}`; and `-0` comes back as `0`. Serialize
+deliberately if it matters:
 
 ```ts
 wal.append({ jobId: "job-42", queuedAt: new Date().toISOString() });

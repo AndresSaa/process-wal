@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Every GitHub Action in the release pipeline is pinned by commit hash rather
+  than by tag. A tag can be moved to point at different code without the
+  reference changing, which is how a compromised action has previously stolen
+  secrets from thousands of repositories. Since `release.yml` is what builds and
+  publishes this package, the change is about the integrity of the artifact you
+  install, not only the repository.
+- The default branch now enforces what the docs already claimed: no direct
+  pushes, no force pushes, pull requests only, and a green Node 22/24 ×
+  Linux/macOS/Windows matrix before anything can merge. Nothing can reach a
+  release without passing the durability suite.
+- Added CodeQL analysis and property-based tests over the recovery path, so the
+  security policy's claim about crafted log files is tested rather than asserted.
+
+### Documentation
+
+- Noted that `-0` replays as `0`, alongside the existing `Date`, `Map` and
+  `undefined` round-trip caveats. JSON, not the log, is what loses the sign.
+
 ## [1.1.0] - 2026-07-31
 
 Removes the library's two documented footguns instead of continuing to warn
