@@ -1,0 +1,16 @@
+# Questions and feature ideas belong in Discussions, where they stay findable
+# as answers rather than closing as "not a bug". Issues stay for defects.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Question — does this fit my case?
+    url: https://github.com/AndresSaa/process-wal/discussions/categories/q-a
+    about: Ask in Q&A. Whether SQLite, an outbox or a broker is the better boundary is answered in docs/alternatives.md first.
+
+  - name: Idea — it should also do X
+    url: https://github.com/AndresSaa/process-wal/discussions/categories/ideas
+    about: Propose it in Ideas. Read the scope constraints in CONTRIBUTING.md first — the closed API declines most additions by design.
+
+  - name: Security vulnerability
+    url: https://github.com/AndresSaa/process-wal/security/advisories/new
+    about: Report privately, never in a public issue. See SECURITY.md for what is in scope.

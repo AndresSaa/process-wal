@@ -13,7 +13,7 @@ released as one rather than smuggled into a patch.
 
 ## Reporting a vulnerability
 
-Report privately through GitHub, not in a public issue:
+Report privately through GitHub — never in a public issue or discussion:
 
 **[Open a private advisory](https://github.com/AndresSaa/process-wal/security/advisories/new)**
 

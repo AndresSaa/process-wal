@@ -91,7 +91,11 @@ behind each rule.
 
 ## Reporting things
 
-- **Bugs and questions:** open an issue; there is a template for each.
+- **Bugs:** open an issue — the form asks for the filesystem and durability mode,
+  which is usually where the answer is.
+- **Questions and ideas:** use
+  [Discussions](https://github.com/AndresSaa/process-wal/discussions). Questions
+  stay findable there as answers instead of closing as "not a bug".
 - **Security vulnerabilities:** do not open a public issue. Follow
   [SECURITY.md](SECURITY.md).
 
