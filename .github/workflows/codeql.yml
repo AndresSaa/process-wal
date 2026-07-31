@@ -1,0 +1,36 @@
+name: CodeQL
+
+# Static analysis of the library source. It runs on pull requests and on
+# landings rather than only on a schedule, so a finding blocks the change that
+# introduced it instead of surfacing days later.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      # CodeQL reads workflow run data to attribute alerts to a run.
+      actions: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        with:
+          languages: javascript-typescript
+          # Nothing is compiled for analysis: CodeQL reads the TypeScript
+          # sources directly, and the tsup build produces only a bundle of the
+          # same code.
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
