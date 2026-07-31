@@ -15,6 +15,10 @@ history/
 *.tmp
 *.log
 
+# Cross-agent scratch space. Never tracked: it holds working notes, not
+# decisions — anything that survives review belongs in a tracked file.
+.ai/
+
 # Local environment and tools
 .env
 .env.*
