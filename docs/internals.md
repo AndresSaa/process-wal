@@ -80,7 +80,7 @@ one changed.
 
 ## Origin
 
-This is an extraction from a production ingestion writer, not a speculative abstraction. The original boundary was concrete: append before acknowledging an incoming measurement, batch downstream writes, then checkpoint only the last successfully persisted sequence.
+An email marketing project was losing tracking events that had already been acknowledged to the webhook delivering them. A restart between the acknowledgement and the write was enough to drop one, and the sender had no reason to retry something it had been told arrived. This package is that gap closed, and nothing else.
 
 Application-specific batching, retry, backpressure, and transport concerns remain outside the package, and should.
 
