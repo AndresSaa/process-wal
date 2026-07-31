@@ -1,15 +1,12 @@
 import type { Wal, WalCursor, WalEntry, WalStats } from "./types.js";
-
-function closedError(): Error & { code: string } {
-  return Object.assign(new Error("WAL is closed"), { code: "ERR_WAL_CLOSED" });
-}
+import { walClosed } from "./validate.js";
 
 export function createNoopWal<T = unknown>(): Wal<T> {
   let seq = 0;
   let checkpointSeq = 0;
   let closed = false;
   const check = (): void => {
-    if (closed) throw closedError();
+    if (closed) throw walClosed();
   };
   // Mirrors createWal: close is the one method safe to call twice.
   const close = (): void => {

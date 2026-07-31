@@ -1,15 +1,15 @@
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { debuglog } from "node:util";
+import { createAccounting } from "./accounting.js";
 import { createFrozenCursor } from "./cursor.js";
+import { encode } from "./record.js";
+import { readEntries, scanAccounting } from "./scan.js";
 import {
+  compactLog,
   healTail,
   readCheckpoint,
-  readEntries,
   replaceFile,
-  scanAccounting,
-  syncDirectory,
-  writeSurvivors,
 } from "./storage.js";
 import type {
   CursorOptions,
@@ -19,38 +19,13 @@ import type {
   WalOptions,
   WalStats,
 } from "./types.js";
+import { checkSeq, resolveOptions, walClosed } from "./validate.js";
 
 const debug = debuglog("process-wal");
-const DEFAULT_MAX_ENTRY_BYTES = 1 << 20;
-
-type CodedError = Error & { code: string };
-
-function fail(code: string, message: string): CodedError {
-  return Object.assign(new Error(message), { code });
-}
-
-function checkSeq(seq: number, label: string): void {
-  if (!Number.isSafeInteger(seq) || seq < 0) {
-    throw new RangeError(`${label} must be a non-negative safe integer`);
-  }
-}
 
 export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
-  const {
-    dir = "./data",
-    fsync = false,
-    compactInterval = null,
-    maxEntryBytes = DEFAULT_MAX_ENTRY_BYTES,
-  } = options;
-  if (!dir || !Number.isSafeInteger(maxEntryBytes) || maxEntryBytes < 1) {
-    throw new RangeError("dir and maxEntryBytes must be valid");
-  }
-  if (
-    compactInterval !== null &&
-    (!Number.isSafeInteger(compactInterval) || compactInterval < 1)
-  ) {
-    throw new RangeError("compactInterval must be a positive integer or null");
-  }
+  const { dir, fsync, compactInterval, maxEntryBytes } =
+    resolveOptions(options);
 
   fs.mkdirSync(dir, { recursive: true });
   const walPath = join(dir, "wal.jsonl");
@@ -60,16 +35,10 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
 
   let checkpointSeq = readCheckpoint(checkpointPath);
   // The same pass that validates the log measures it, so stats() never reads
-  // the filesystem: every counter below is maintained from here on.
+  // the filesystem: the accounting is maintained from here on.
   const opened = scanAccounting<T>(walPath, checkpointSeq);
+  const measured = createAccounting(opened);
   let lastSeq = Math.max(checkpointSeq, opened.lastSeq);
-  let bytes = opened.bytes;
-  let reclaimableBytes = opened.reclaimableBytes;
-  // pendingSizes[i] is the byte length of the record at checkpointSeq + 1 + i.
-  // reclaimableBytes cannot be derived from lastSeq and checkpoint alone: two
-  // logs with identical counters differ by whichever records happen to be
-  // large, so the per-record lengths have to be kept.
-  let pendingSizes = opened.pendingSizes;
   let fd = fs.openSync(walPath, "a");
   let closed = false;
   let activeCursors = 0;
@@ -77,7 +46,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   let timer: NodeJS.Timeout | undefined;
 
   const assertOpen = (): void => {
-    if (closed) throw fail("ERR_WAL_CLOSED", "WAL is closed");
+    if (closed) throw walClosed();
   };
 
   const append = (value: T): number => {
@@ -86,26 +55,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
       throw new RangeError("WAL sequence number space is exhausted");
     }
     const next = lastSeq + 1;
-    let payload: string | undefined;
-    try {
-      payload = JSON.stringify(value);
-    } catch {
-      throw fail(
-        "ERR_ENTRY_NOT_SERIALIZABLE",
-        "entry is not JSON-serializable",
-      );
-    }
-    if (payload === undefined) {
-      throw fail(
-        "ERR_ENTRY_NOT_SERIALIZABLE",
-        "entry is not JSON-serializable",
-      );
-    }
-    const line = `{"seq":${next},"value":${payload}}\n`;
-    if (Buffer.byteLength(line) > maxEntryBytes) {
-      throw fail("ERR_ENTRY_TOO_LARGE", `entry exceeds ${maxEntryBytes} bytes`);
-    }
-    const data = Buffer.from(line);
+    const data = encode(next, value, maxEntryBytes);
     let offset = 0;
     while (offset < data.length)
       offset += fs.writeSync(fd, data, offset, data.length - offset);
@@ -113,8 +63,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     // Publish the seq only after the full record reaches the selected
     // durability boundary (page cache, or storage when fsync is enabled).
     lastSeq = next;
-    bytes += data.length;
-    pendingSizes.push(data.length);
+    measured.record(data.length);
     return lastSeq;
   };
 
@@ -123,14 +72,8 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     checkSeq(nextCheckpoint, "checkpoint");
     if (nextCheckpoint <= checkpointSeq) return;
     replaceFile(checkpointPath, String(nextCheckpoint), fsync, dir);
-    // Memory advances only after the atomic replacement succeeds. A checkpoint
-    // beyond the last append covers every pending record, hence the clamp.
-    const covered = Math.min(
-      nextCheckpoint - checkpointSeq,
-      pendingSizes.length,
-    );
-    for (let i = 0; i < covered; i += 1) reclaimableBytes += pendingSizes[i];
-    pendingSizes = pendingSizes.slice(covered);
+    // Memory advances only after the atomic replacement succeeds.
+    measured.advance(nextCheckpoint - checkpointSeq);
     checkpointSeq = nextCheckpoint;
     lastSeq = Math.max(lastSeq, nextCheckpoint);
   };
@@ -141,20 +84,10 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const compactNow = (): void => {
-    const tmp = `${walPath}.tmp`;
-    writeSurvivors(walPath, tmp, checkpointSeq, fsync);
-    // Closing the writer is required before replacing its file on Windows.
-    fs.closeSync(fd);
-    try {
-      fs.renameSync(tmp, walPath);
-    } finally {
-      fd = fs.openSync(walPath, "a");
-    }
-    if (fsync) syncDirectory(dir);
-    // writeSurvivors keeps exactly the records above the checkpoint, so what
-    // the file lost is precisely what was reclaimable.
-    bytes -= reclaimableBytes;
-    reclaimableBytes = 0;
+    fd = compactLog(walPath, fd, checkpointSeq, fsync, dir);
+    // Compaction keeps exactly the records above the checkpoint, so what the
+    // file lost is precisely what was reclaimable.
+    measured.compacted();
     compactPending = false;
   };
 
@@ -193,11 +126,9 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     return {
       lastSeq,
       checkpoint: checkpointSeq,
-      // The array length is the ground truth, not lastSeq - checkpointSeq:
-      // it counts records that are actually in the file.
-      pendingEntries: pendingSizes.length,
-      bytes,
-      reclaimableBytes,
+      pendingEntries: measured.pendingEntries,
+      bytes: measured.bytes,
+      reclaimableBytes: measured.reclaimableBytes,
     };
   };
 

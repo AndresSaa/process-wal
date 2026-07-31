@@ -33,11 +33,19 @@ Manual compaction makes disk-growth policy explicit and is the simplest default.
 
 The source is split by responsibility:
 
-- `src/wal.ts` — lifecycle, sequencing, compaction, and public orchestration.
+- `src/wal.ts` — lifecycle, sequencing, and public orchestration.
+- `src/record.ts` — the on-disk record format: encode and decode one entry.
+- `src/scan.ts` — bounded-memory reads of the log, including the open-time pass that validates and measures it in one go.
+- `src/storage.ts` — durability primitives: heal-on-open, atomic replacement, compaction, directory flush.
+- `src/accounting.ts` — the byte and entry counters behind `stats()`.
+- `src/validate.ts` — option resolution, sequence checks, and the coded errors.
 - `src/cursor.ts` — frozen streaming snapshots and descriptor release.
-- `src/storage.ts` — bounded-memory validation, recovery, flushing, and atomic replacement primitives.
 - `src/noop.ts` — the lifecycle without storage.
 - `src/types.ts` — the complete public contract.
+
+No module owns two jobs. `wal.ts` decides _when_ things happen; the others know
+_how_. That boundary is why `wal.ts` can be read start to finish without
+following a call into the filesystem.
 
 Comments explain only the non-obvious guarantees.
 
