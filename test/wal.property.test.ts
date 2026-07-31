@@ -191,3 +191,48 @@ describe("stats never drifts from the file", () => {
     );
   });
 });
+
+describe("appendMany is indistinguishable from repeated append", () => {
+  it("produces byte-identical logs for any batching of the same values", () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.jsonValue(), { maxLength: 30 }),
+        fc.array(fc.integer({ min: 0, max: 6 }), { maxLength: 12 }),
+        (values, chunkSizes) => {
+          const oneByOne = tempDir();
+          const single = createWal({ dir: oneByOne });
+          const singleSeqs = values.map((value) => single.append(value));
+          single.close();
+
+          // Split the same values into arbitrary batches, empty ones included.
+          const batched = tempDir();
+          const many = createWal({ dir: batched });
+          const manySeqs: number[] = [];
+          let cursor = 0;
+          let index = 0;
+          while (cursor < values.length || index < chunkSizes.length) {
+            const size =
+              chunkSizes[index++ % Math.max(chunkSizes.length, 1)] ?? 0;
+            manySeqs.push(
+              ...many.appendMany(values.slice(cursor, cursor + size)),
+            );
+            cursor += size;
+            if (index > chunkSizes.length && size === 0) break;
+          }
+          manySeqs.push(...many.appendMany(values.slice(cursor)));
+          const manyStats = many.stats();
+          many.close();
+
+          // Same seqs, same bytes on disk: batching is a write-path detail and
+          // must never be observable in the log it produces.
+          expect(manySeqs).toEqual(singleSeqs);
+          expect(readFileSync(walPath(batched))).toEqual(
+            readFileSync(walPath(oneByOne)),
+          );
+          expect(manyStats.bytes).toBe(statSync(walPath(oneByOne)).size);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});

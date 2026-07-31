@@ -61,10 +61,12 @@ guessing.
 - **Zero runtime dependencies.** Only Node built-ins (`fs`, `path`). A PR that
   adds a runtime dependency is wrong by definition, whatever it fixes.
 - **Closed API surface:** `createWal`, `createNoopWal`; methods `append`,
-  `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`, plus
+  `appendMany`, `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`,
+  plus
   `[Symbol.dispose]` on a WAL and `[Symbol.asyncDispose]` on a cursor. New
   surface requires amending the invariants below first.
-- **Synchronous by design.** `append`/`checkpoint`/`compact`/`close` are sync —
+- **Synchronous by design.** `append`/`appendMany`/`checkpoint`/`compact`/`close`
+  are sync —
   that's the durability contract (the record reaches the kernel before we
   return). Do not "improve" them into async. Only `cursor` is async.
 - **~200 lines per module, and one job each.** The budget is per file, not for
@@ -110,7 +112,11 @@ guessing.
    properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
    `ERR_ENTRY_NOT_SERIALIZABLE`), not exported classes.
 7. The `compactInterval` timer is `unref()`'d and cleared by `close()`.
-8. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
+8. `appendMany` encodes the whole batch before writing any of it, so a value it
+   cannot serialise leaves the log and the sequence untouched. Returning means
+   the batch is durable; it is not atomic against a crash mid-write, which
+   leaves a healed prefix like any interrupted append.
+9. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
    what `replay()` returns and `reclaimableBytes` equals what `compact()` would
    free — both exactly, both maintained through append, checkpoint, compaction
    and heal-on-open.

@@ -6,6 +6,7 @@ the first — the rest are variations on it.
 - [The core loop](#the-core-loop)
 - [`createWal` options](#createwal-options)
 - [`append`](#append)
+- [`appendMany`](#appendmany)
 - [`checkpoint`](#checkpoint)
 - [`replay`](#replay)
 - [`cursor`](#cursor)
@@ -136,6 +137,73 @@ deliberately if it matters:
 
 ```ts
 wal.append({ jobId: "job-42", queuedAt: new Date().toISOString() });
+```
+
+## `appendMany`
+
+One write and one flush for the whole batch, returning one sequence number per
+value, in order.
+
+```ts
+const seqs = wal.appendMany([job1, job2, job3]); // [1, 2, 3]
+```
+
+With `fsync: true` this is the difference between paying for a storage flush per
+record and paying for one per call — roughly 2,000 records per second versus
+185,000 at a batch of 100. With `fsync: false` the saving is a few syscalls and
+much smaller.
+
+An empty batch is a no-op: no write, no flush, no sequence number consumed.
+
+### What it guarantees, and what it does not
+
+**If the call returns, every record in it is durable.** That is the same promise
+`append` makes, extended to the batch.
+
+**It is not transactional.** A single `write` is not atomic against a crash, so
+a process killed mid-call can leave a prefix of the batch on disk. Those records
+are complete and will replay, exactly like any other work that was never
+acknowledged — the torn final record is truncated on open as usual. If you need
+all-or-nothing across a crash, you need a transaction in the downstream system,
+which is outside this library.
+
+**A value it cannot serialise fails the call before anything is written.** The
+whole batch is encoded first, so a bad value in the middle costs you the call,
+not half a batch:
+
+```ts
+try {
+  wal.appendMany([good, () => {}, alsoGood]);
+} catch {
+  // Nothing was written. lastSeq is unchanged, and the next append continues
+  // from where it was.
+}
+```
+
+### Ingesting a stream
+
+```ts
+let batch: Event[] = [];
+
+async function receive(event: Event): Promise<void> {
+  batch.push(event);
+  if (batch.length >= 100) await flush();
+}
+
+async function flush(): Promise<void> {
+  if (batch.length === 0) return;
+  const pending = batch;
+  batch = [];
+
+  const seqs = wal.appendMany(pending); // durable once this returns
+  acknowledge(seqs);
+
+  await forward(pending);
+  wal.checkpoint(seqs[seqs.length - 1]);
+}
+
+// Time-based flush as well, or a quiet producer leaves work unacknowledged.
+setInterval(() => void flush(), 200).unref();
 ```
 
 ## `checkpoint`

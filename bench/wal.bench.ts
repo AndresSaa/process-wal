@@ -16,6 +16,10 @@ function benchmarkWal(fsync: boolean) {
 
 const pageCacheWal = benchmarkWal(false);
 const fsyncWal = benchmarkWal(true);
+const batchWal = benchmarkWal(true);
+// vitest reports per call, so divide by the batch size to compare against the
+// single-append numbers above.
+const batch = Array.from({ length: 100 }, () => ({ value: 42 }));
 const options = {
   iterations: 10_000,
   time: 0,
@@ -40,8 +44,19 @@ describe("append latency", () => {
   );
 });
 
+describe("batched append latency, per call of 100 records", () => {
+  bench(
+    "fsync: true, appendMany of 100",
+    () => {
+      batchWal.appendMany(batch);
+    },
+    { ...options, iterations: 200 },
+  );
+});
+
 afterAll(() => {
   pageCacheWal.close();
   fsyncWal.close();
+  batchWal.close();
   for (const dir of directories) rmSync(dir, { recursive: true, force: true });
 });

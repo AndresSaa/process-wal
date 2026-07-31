@@ -49,22 +49,46 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     if (closed) throw walClosed();
   };
 
+  const writeAll = (data: Buffer): void => {
+    let offset = 0;
+    while (offset < data.length)
+      offset += fs.writeSync(fd, data, offset, data.length - offset);
+    if (fsync) fs.fsyncSync(fd);
+  };
+
   const append = (value: T): number => {
     assertOpen();
     if (lastSeq === Number.MAX_SAFE_INTEGER) {
       throw new RangeError("WAL sequence number space is exhausted");
     }
-    const next = lastSeq + 1;
-    const data = encode(next, value, maxEntryBytes);
-    let offset = 0;
-    while (offset < data.length)
-      offset += fs.writeSync(fd, data, offset, data.length - offset);
-    if (fsync) fs.fsyncSync(fd);
+    const data = encode(lastSeq + 1, value, maxEntryBytes);
+    writeAll(data);
     // Publish the seq only after the full record reaches the selected
     // durability boundary (page cache, or storage when fsync is enabled).
-    lastSeq = next;
+    lastSeq += 1;
     measured.record(data.length);
     return lastSeq;
+  };
+
+  const appendMany = (values: T[]): number[] => {
+    assertOpen();
+    if (values.length === 0) return [];
+    if (values.length > Number.MAX_SAFE_INTEGER - lastSeq) {
+      throw new RangeError("WAL sequence number space is exhausted");
+    }
+    // Encode the whole batch before writing any of it, so a value that cannot
+    // be serialised fails the call instead of leaving part of a batch behind.
+    const records = values.map((value, index) =>
+      encode(lastSeq + 1 + index, value, maxEntryBytes),
+    );
+    // One write and one flush for the batch. The flush is what costs, so this
+    // is the difference between paying it per record and paying it per call.
+    writeAll(Buffer.concat(records));
+    return records.map((record) => {
+      lastSeq += 1;
+      measured.record(record.length);
+      return lastSeq;
+    });
   };
 
   const checkpoint = (nextCheckpoint: number): void => {
@@ -163,6 +187,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
 
   return {
     append,
+    appendMany,
     checkpoint,
     replay,
     cursor,

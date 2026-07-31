@@ -134,6 +134,85 @@ describe("createWal", () => {
     reopened.close();
   });
 
+  it("appends a batch in one write and returns contiguous seqs", () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+
+    expect(wal.appendMany(["a", "b", "c"])).toEqual([1, 2, 3]);
+    expect(wal.append("d")).toBe(4);
+    expect(wal.appendMany(["e", "f"])).toEqual([5, 6]);
+
+    expect(wal.replay().map((entry) => entry.value)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "f",
+    ]);
+    expect(wal.stats()).toMatchObject({ lastSeq: 6, pendingEntries: 6 });
+    expect(wal.stats().bytes).toBe(statSync(`${dir}/wal.jsonl`).size);
+    wal.close();
+  });
+
+  it("treats an empty batch as a no-op", () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("one");
+    const before = wal.stats();
+
+    expect(wal.appendMany([])).toEqual([]);
+
+    // No seq burned, no bytes written, no flush.
+    expect(wal.stats()).toEqual(before);
+    expect(wal.stats().bytes).toBe(statSync(`${dir}/wal.jsonl`).size);
+    wal.close();
+  });
+
+  it("writes nothing when any value in the batch is rejected", () => {
+    const dir = tempDir();
+    const wal = createWal({ dir });
+    wal.append("first");
+    const before = wal.stats();
+
+    // The failure is in the middle: the records before it must not reach disk,
+    // or the caller would have half a batch it was never told about.
+    expect(() => wal.appendMany(["ok", () => {}, "ok"])).toThrow(
+      expect.objectContaining({ code: "ERR_ENTRY_NOT_SERIALIZABLE" }),
+    );
+    expect(() =>
+      wal.appendMany(["ok", { blob: "x".repeat(2 ** 21) }, "ok"]),
+    ).toThrow(expect.objectContaining({ code: "ERR_ENTRY_TOO_LARGE" }));
+
+    expect(wal.stats()).toEqual(before);
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(before.bytes);
+    // The sequence is untouched, so the next append continues where it left off.
+    expect(wal.append("second")).toBe(2);
+    wal.close();
+  });
+
+  it("keeps a batch across a restart", () => {
+    const dir = tempDir();
+    const first = createWal<number>({ dir, fsync: true });
+    first.appendMany([1, 2, 3, 4, 5]);
+    first.close();
+
+    const second = createWal<number>({ dir });
+    expect(second.replay().map((entry) => entry.value)).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
+    expect(second.stats().lastSeq).toBe(5);
+    second.close();
+  });
+
+  it("throws ERR_WAL_CLOSED from appendMany after close", () => {
+    const wal = createWal({ dir: tempDir() });
+    wal.close();
+    expect(() => wal.appendMany(["a"])).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
+  });
+
   it("reports position and size without touching disk", () => {
     const dir = tempDir();
     const wal = createWal<string>({ dir });
@@ -382,14 +461,15 @@ describe("createNoopWal", () => {
     const wal = createNoopWal<string>();
 
     expect(wal.append("one")).toBe(1);
-    expect(wal.append("two")).toBe(2);
+    expect(wal.appendMany(["two", "three"])).toEqual([2, 3]);
+    expect(wal.append("four")).toBe(4);
     expect(wal.replay()).toEqual([]);
     expect(await collect(wal.cursor())).toEqual([]);
-    wal.checkpoint(2);
+    wal.checkpoint(4);
     wal.compact();
     expect(wal.stats()).toEqual({
-      lastSeq: 2,
-      checkpoint: 2,
+      lastSeq: 4,
+      checkpoint: 4,
       pendingEntries: 0,
       bytes: 0,
       reclaimableBytes: 0,
