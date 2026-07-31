@@ -20,6 +20,16 @@ export interface CursorOptions {
   fromSeq?: number;
 }
 
+/**
+ * A frozen snapshot stream that owns a file descriptor. Disposing it releases
+ * that descriptor, which is what lets a deferred compact() finally run.
+ */
+export interface WalCursor<T = unknown> extends AsyncIterableIterator<
+  WalEntry<T>
+> {
+  [Symbol.asyncDispose](): Promise<void>;
+}
+
 export interface Wal<T = unknown> {
   /** Persist a JSON-serializable value before returning its sequence number. */
   append(value: T): number;
@@ -28,9 +38,11 @@ export interface Wal<T = unknown> {
   /** Materialize entries newer than the current checkpoint. */
   replay(): Array<WalEntry<T>>;
   /** Stream a checkpoint and file-size snapshot without loading it all. */
-  cursor(options?: CursorOptions): AsyncIterableIterator<WalEntry<T>>;
+  cursor(options?: CursorOptions): WalCursor<T>;
   /** Atomically remove checkpointed records from the log. */
   compact(): void;
-  /** Flush when configured and release the writer. */
+  /** Flush when configured and release the writer. Idempotent. */
   close(): void;
+  /** Alias for close(), so `using wal = createWal()` releases it. */
+  [Symbol.dispose](): void;
 }

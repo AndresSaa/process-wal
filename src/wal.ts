@@ -11,7 +11,13 @@ import {
   syncDirectory,
   writeSurvivors,
 } from "./storage.js";
-import type { CursorOptions, Wal, WalEntry, WalOptions } from "./types.js";
+import type {
+  CursorOptions,
+  Wal,
+  WalCursor,
+  WalEntry,
+  WalOptions,
+} from "./types.js";
 
 const debug = debuglog("process-wal");
 const DEFAULT_MAX_ENTRY_BYTES = 1 << 20;
@@ -133,9 +139,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     if (!closed && activeCursors === 0 && compactPending) compactNow();
   };
 
-  const cursor = ({ fromSeq = 0 }: CursorOptions = {}): AsyncIterableIterator<
-    WalEntry<T>
-  > => {
+  const cursor = ({ fromSeq = 0 }: CursorOptions = {}): WalCursor<T> => {
     assertOpen();
     checkSeq(fromSeq, "fromSeq");
     // The checkpoint and byte length form an immutable view even as appends
@@ -160,8 +164,12 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     compactNow();
   };
 
+  // Idempotent, unlike every other method. Releasing a resource twice is what
+  // correct shutdown code does — a `finally` and a signal handler both fire —
+  // so throwing there would punish the careful caller. An append after close
+  // still throws: accepting one would silently drop work.
   const close = (): void => {
-    assertOpen();
+    if (closed) return;
     if (timer) clearInterval(timer);
     if (fsync) fs.fsyncSync(fd);
     fs.closeSync(fd);
@@ -185,5 +193,13 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     timer.unref();
   }
 
-  return { append, checkpoint, replay, cursor, compact, close };
+  return {
+    append,
+    checkpoint,
+    replay,
+    cursor,
+    compact,
+    close,
+    [Symbol.dispose]: close,
+  };
 }

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { createInterface } from "node:readline";
 import { decode } from "./storage.js";
-import type { WalEntry } from "./types.js";
+import type { WalCursor, WalEntry } from "./types.js";
 
 interface FrozenCursorOptions {
   walPath: string;
@@ -15,7 +15,7 @@ export function createFrozenCursor<T>({
   checkpointSeq,
   fromSeq,
   onRelease,
-}: FrozenCursorOptions): AsyncIterableIterator<WalEntry<T>> {
+}: FrozenCursorOptions): WalCursor<T> {
   const fd = fs.openSync(walPath, "r");
   let size: number;
   try {
@@ -70,6 +70,13 @@ export function createFrozenCursor<T>({
     throw: async (error) => {
       if (!started) release();
       return iterator.throw(error);
+    },
+    // `await using` calls this exactly once on scope exit, including on an
+    // early return or a throw. It is the only way to release the descriptor
+    // that does not depend on the caller remembering to.
+    async [Symbol.asyncDispose]() {
+      if (!started) release();
+      await iterator.return(undefined);
     },
     [Symbol.asyncIterator]() {
       return this;

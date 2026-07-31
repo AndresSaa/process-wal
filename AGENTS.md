@@ -64,7 +64,8 @@ guessing.
 - **Zero runtime dependencies.** Only Node built-ins (`fs`, `path`). A PR that
   adds a runtime dependency is wrong by definition, whatever it fixes.
 - **Closed API surface:** `createWal`, `createNoopWal`; methods `append`,
-  `checkpoint`, `replay`, `cursor`, `compact`, `close`. New surface requires a
+  `checkpoint`, `replay`, `cursor`, `compact`, `close`, plus `[Symbol.dispose]`
+  on a WAL and `[Symbol.asyncDispose]` on a cursor. New surface requires a
   brief amendment first.
 - **Synchronous by design.** `append`/`checkpoint`/`compact`/`close` are sync —
   that's the durability contract (the record reaches the kernel before we
@@ -97,8 +98,11 @@ guessing.
 5. A cursor freezes its view at creation (checkpoint snapshot, own fd);
    `compact()` is deferred while any cursor is open (also a Windows correctness
    requirement — rename over an open file fails there).
-6. Every method throws `ERR_WAL_CLOSED` after `close()`. Errors carry stable
-   `code` properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
+6. Every method **except `close()`** throws `ERR_WAL_CLOSED` once closed.
+   `close()` is idempotent, and `[Symbol.dispose]` aliases it: releasing a
+   resource twice is what correct shutdown code does, but an `append()` that
+   succeeded after close would silently drop work. Errors carry stable `code`
+   properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
    `ERR_ENTRY_NOT_SERIALIZABLE`), not exported classes.
 7. The `compactInterval` timer is `unref()`'d and cleared by `close()`.
 

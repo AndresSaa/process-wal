@@ -70,7 +70,7 @@ describe("createWal", () => {
     wal.close();
   });
 
-  it("throws ERR_WAL_CLOSED from every method after close", () => {
+  it("throws ERR_WAL_CLOSED from every method except close", () => {
     const wal = createWal({ dir: tempDir() });
     wal.close();
 
@@ -80,11 +80,58 @@ describe("createWal", () => {
       () => wal.replay(),
       () => wal.cursor(),
       () => wal.compact(),
-      () => wal.close(),
     ];
     for (const call of calls) {
       expect(call).toThrow(expect.objectContaining({ code: "ERR_WAL_CLOSED" }));
     }
+  });
+
+  it("closes idempotently, because shutdown paths run twice", () => {
+    // A `finally` and a SIGTERM handler both firing is correct code, not a
+    // bug, so it must not be punished with a throw.
+    const wal = createWal({ dir: tempDir(), fsync: true, compactInterval: 50 });
+    wal.append("one");
+
+    expect(() => {
+      wal.close();
+      wal.close();
+      wal.close();
+    }).not.toThrow();
+
+    // Still closed for everything else — accepting an append here would
+    // silently drop work.
+    expect(() => wal.append("after")).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
+  });
+
+  it("disposes through Symbol.dispose and stays idempotent", () => {
+    const dir = tempDir();
+    const wal = createWal({ dir });
+    wal.append("one");
+
+    wal[Symbol.dispose]();
+    expect(() => wal.append("after")).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
+    // Disposal after an explicit close, and vice versa, are both no-ops.
+    expect(() => {
+      wal[Symbol.dispose]();
+      wal.close();
+    }).not.toThrow();
+  });
+
+  it("releases the writer at the end of a `using` block", () => {
+    const dir = tempDir();
+    {
+      using wal = createWal<string>({ dir });
+      wal.append("one");
+    }
+    // If the descriptor had leaked, reopening and appending would still work,
+    // so prove the close ran by observing the durable state instead.
+    const reopened = createWal<string>({ dir });
+    expect(reopened.replay().map((entry) => entry.value)).toEqual(["one"]);
+    reopened.close();
   });
 
   it("validates numeric options and sequence inputs", () => {
@@ -173,6 +220,66 @@ describe("cursor", () => {
     wal.close();
   });
 
+  it("releases its file descriptor through Symbol.asyncDispose", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("x".repeat(1_000));
+    wal.append("second");
+    wal.append("third");
+    // Checkpoint only the first, so the cursor still has entries to yield and
+    // therefore still owns its descriptor after one next().
+    wal.checkpoint(1);
+    const before = statSync(`${dir}/wal.jsonl`).size;
+
+    const cursor = wal.cursor();
+    expect((await cursor.next()).value).toEqual({ seq: 2, value: "second" });
+
+    wal.compact();
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(before);
+
+    await cursor[Symbol.asyncDispose]();
+
+    expect(statSync(`${dir}/wal.jsonl`).size).toBeLessThan(before);
+    expect(wal.replay()).toEqual([
+      { seq: 2, value: "second" },
+      { seq: 3, value: "third" },
+    ]);
+    wal.close();
+  });
+
+  it("disposes a cursor that was never iterated, and tolerates a second dispose", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("done");
+    wal.checkpoint(1);
+
+    const cursor = wal.cursor();
+    await cursor[Symbol.asyncDispose]();
+    await cursor[Symbol.asyncDispose]();
+
+    wal.compact();
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
+    wal.close();
+  });
+
+  it("releases the descriptor at the end of an `await using` block", async () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("done");
+    wal.checkpoint(1);
+
+    {
+      await using cursor = wal.cursor();
+      await cursor.next();
+      // Leaving the block early is the case that used to leak the descriptor
+      // and defer compact() for the life of the process.
+    }
+
+    wal.compact();
+    expect(statSync(`${dir}/wal.jsonl`).size).toBe(0);
+    wal.close();
+  });
+
   it("releases its file descriptor when a consumer aborts with throw", async () => {
     const dir = tempDir();
     const wal = createWal<string>({ dir });
@@ -217,6 +324,22 @@ describe("createNoopWal", () => {
     wal.checkpoint(2);
     wal.compact();
     wal.close();
+    expect(() => wal.append("closed")).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
+  });
+
+  it("mirrors the disposable lifecycle of the real WAL", async () => {
+    const wal = createNoopWal<string>();
+
+    await using cursor = wal.cursor();
+    expect(await cursor.next()).toEqual({ done: true, value: undefined });
+
+    expect(() => {
+      wal.close();
+      wal.close();
+      wal[Symbol.dispose]();
+    }).not.toThrow();
     expect(() => wal.append("closed")).toThrow(
       expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
     );

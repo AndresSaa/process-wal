@@ -5,6 +5,44 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-31
+
+Removes the library's two documented footguns instead of continuing to warn
+about them. Nothing that worked before behaves differently.
+
+### Added
+
+- A WAL implements `[Symbol.dispose]` and a cursor implements
+  `[Symbol.asyncDispose]`, so scope can own them:
+
+  ```ts
+  using wal = createWal({ dir: "./data" });
+  await using cursor = wal.cursor();
+  ```
+
+  This matters most for cursors. A cursor holds a file descriptor, and leaking
+  one defers `compact()` for the life of the process and keeps the log locked on
+  Windows. `await using` releases it on every exit path, including an early
+  `return` from the enclosing function, which no previous form covered.
+
+- The cursor type is exported as `WalCursor<T>` for code that needs to name it.
+
+### Changed
+
+- **`close()` is now idempotent.** A second call is a no-op instead of throwing
+  `ERR_WAL_CLOSED`. Calling it from both a `finally` and a `SIGTERM` handler is
+  what correct shutdown code looks like, and the old behaviour punished it — the
+  README had to carry a warning telling you to guard the call. You can delete
+  those guards.
+
+  Every _other_ method still throws `ERR_WAL_CLOSED` after close. The asymmetry
+  is deliberate: releasing a resource twice is harmless, but an `append()` that
+  quietly succeeded after close would drop work you had been told was durable.
+
+This release only widens what is accepted. The single behaviour change affects
+code that currently raises an exception, so no working program can observe it
+unless it depended on `close()` throwing.
+
 ## [1.0.1] - 2026-07-31
 
 Documentation only. The library, its API, and its durability contract are
