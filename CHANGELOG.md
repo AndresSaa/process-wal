@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-31
+
+### Added
+
+- `appendMany(values)` persists a batch in one write and one flush, returning a
+  sequence number per value:
+
+  ```ts
+  const seqs = wal.appendMany(batch);
+  ```
+
+  With `fsync: true` the flush is the entire cost, and paying it once per batch
+  rather than once per record moves throughput from 2,163 to 184,642 records per
+  second at a batch of 100 — 85× for 17% more time per call. With
+  `fsync: false` the saving is a few syscalls and much smaller.
+
+  If the call returns, every record in the batch is durable. It is not
+  transactional: a crash _during_ the call can leave a prefix on disk, which
+  replays like any other unacknowledged work. What it does guarantee is that a
+  value it cannot serialise fails the call before anything is written, because
+  the batch is encoded in full first — a bad value in the middle costs you the
+  call, never half a batch. An empty batch is a no-op.
+
 ## [1.2.0] - 2026-07-31
 
 ### Added

@@ -30,6 +30,18 @@ Intel Core i7-10875H, WD SN730 1 TB NVMe SSD. Measured 2026-07-31.
 
 Run inside the WSL2 root filesystem, not a `/mnt/c` mount, which would measure the Windows interop bridge instead of ext4. WSL2's ext4 lives on a virtual disk backed by the NVMe above, so its `fsync` figure carries virtualization overhead that bare-metal Linux would not. Treat it as a lower bound on native Linux, not a substitute for measuring one.
 
+### Batching with `appendMany`
+
+| Mode                        |  Per call | Per record |        Throughput |
+| --------------------------- | --------: | ---------: | ----------------: |
+| `fsync: true`, one record   | 0.4623 ms |  0.4623 ms |   2,163 records/s |
+| `fsync: true`, batch of 100 | 0.5416 ms |  0.0054 ms | 184,642 records/s |
+
+The flush is what costs, and a batch pays for one instead of a hundred: 85×
+more records per second for 17% more time per call. Measured on the Windows
+host above; `npm run bench` reports per call, so the per-record column is that
+figure divided by the batch size.
+
 ## Reading these numbers
 
 The gap between modes — 70× on NTFS, 553× on ext4 — is the entire cost of host-loss durability, and it is why `fsync` is opt-in rather than the default.

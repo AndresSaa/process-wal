@@ -56,6 +56,11 @@ export interface WalStats {
 export interface Wal<T = unknown> {
   /** Persist a JSON-serializable value before returning its sequence number. */
   append(value: T): number;
+  /**
+   * Persist many values in one write and one flush, returning their sequence
+   * numbers. Returning means all of them are durable.
+   */
+  appendMany(values: T[]): number[];
   /** Mark every entry through seq as processed. */
   checkpoint(seq: number): void;
   /** Materialize entries newer than the current checkpoint. */

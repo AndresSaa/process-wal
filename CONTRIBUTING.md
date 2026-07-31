@@ -12,9 +12,10 @@ reasonable ideas will be declined, and it is not personal:
 - **Zero runtime dependencies.** Only Node built-ins. A pull request that adds a
   runtime dependency is out of scope whatever it fixes.
 - **The API is closed.** `createWal`, `createNoopWal`, and the methods `append`,
-  `checkpoint`, `replay`, `cursor`, `compact`, `close`. New surface needs
-  agreement in an issue first.
-- **`append`, `checkpoint`, `compact` and `close` are synchronous.** That is the
+  `appendMany`, `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`.
+  New surface needs agreement in an issue first.
+- **`append`, `appendMany`, `checkpoint`, `compact` and `close` are
+  synchronous.** That is the
   durability contract, not an oversight: the record reaches the kernel before
   the call returns. Only `cursor` is async.
 - **Multi-process, networked, replicated, transactional, or queue-like

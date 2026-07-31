@@ -80,6 +80,7 @@ Those are the defaults; every option can be omitted. Invalid values throw `Range
 | Method                 | Contract                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------- |
 | `append(value)`        | JSON-serializes and persists a value, then returns its monotonic sequence number        |
+| `appendMany(values)`   | Persists a batch in one write and one flush, then returns their sequence numbers        |
 | `checkpoint(seq)`      | Marks every entry through `seq` processed; lower or equal checkpoints are no-ops        |
 | `replay()`             | Materializes entries after the current checkpoint in append order                       |
 | `cursor({ fromSeq? })` | Streams an exclusive-`fromSeq`, checkpoint-and-file-size snapshot                       |
@@ -90,6 +91,22 @@ Those are the defaults; every option can be omitted. Invalid values throw `Range
 A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
 
 Every method except `close()` throws an error with `code: "ERR_WAL_CLOSED"` once the WAL is closed. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+
+### Batching
+
+`fsync: true` costs a flush per `append`. `appendMany` pays it once for the
+whole batch, which is the difference between roughly 2,000 and 185,000 records
+per second on the machine in [docs/benchmarks.md](https://github.com/AndresSaa/process-wal/blob/main/docs/benchmarks.md):
+
+```ts
+const seqs = wal.appendMany(batch); // one write, one flush
+```
+
+If the call returns, every record in the batch is durable. It is **not**
+transactional: a crash _during_ the call can leave a prefix of the batch on
+disk, which replays like any other unacknowledged work. What it does guarantee
+is that a value the batch cannot serialise fails the call before anything is
+written — the whole batch is encoded first, so you never get half of one.
 
 ### Policy and metrics
 

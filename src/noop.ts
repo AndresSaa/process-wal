@@ -18,6 +18,10 @@ export function createNoopWal<T = unknown>(): Wal<T> {
       check();
       return ++seq;
     },
+    appendMany(values: T[]) {
+      check();
+      return values.map(() => ++seq);
+    },
     checkpoint(nextCheckpoint: number) {
       check();
       if (nextCheckpoint > checkpointSeq) {
