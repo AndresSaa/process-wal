@@ -48,15 +48,15 @@ More than one agent works on this repository, and they do not share a session.
 
 ```
 .ai/
-├── pr-audits/        # review output, one file per audit
-├── context-exports/  # generated snapshots of structure or dependencies
-└── temp/             # scratch, disposable without asking
+├── pr-audits/  # review output, one file per audit
+└── temp/       # scratch, disposable without asking
 ```
 
-Naming: `pr-audits/{type}-{slug}_{YYYY-MM-DD}_{timestamp}.md`, e.g.
-`feat-append-many_2026-08-01_143022.md`. An audit says who produced it and
-against which commit, because "the audit said so" is worthless without knowing
-what it read.
+Naming: `pr-audits/{YYYY-MM-DD}_{HHMMSS}_{type}-{slug}.md`, e.g.
+`2026-08-01_143022_feat-append-many.md`. Date first so a directory listing comes
+out in the order the audits happened, which is how you read them. An audit says
+who produced it and against which commit, because "the audit said so" is
+worthless without knowing what it read.
 
 **The rule that matters: `.ai/` holds working notes, never decisions.** The
 contract lives in this repository — the invariants above, the tests, the public
