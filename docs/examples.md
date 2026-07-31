@@ -10,6 +10,7 @@ the first — the rest are variations on it.
 - [`replay`](#replay)
 - [`cursor`](#cursor)
 - [`compact`](#compact)
+- [`stats`](#stats)
 - [`close`](#close)
 - [`createNoopWal`](#createnoopwal)
 - [Errors](#errors)
@@ -265,6 +266,72 @@ wal.compact(); // now it runs
 ```
 
 Set `NODE_DEBUG=process-wal` to see when a compaction was deferred.
+
+## `stats`
+
+Reads the log's position and size from memory. No syscalls, so it is safe on a
+metrics scrape or a health check.
+
+```ts
+const { lastSeq, checkpoint, pendingEntries, bytes, reclaimableBytes } =
+  wal.stats();
+```
+
+| Field              | Meaning                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| `lastSeq`          | highest sequence number issued by this instance                |
+| `checkpoint`       | highest sequence number marked processed                       |
+| `pendingEntries`   | records above the checkpoint — exactly what `replay()` returns |
+| `bytes`            | current size of the log                                        |
+| `reclaimableBytes` | exactly what the next `compact()` would free                   |
+
+### An explicit compaction policy
+
+Compaction is manual by default because only you know when the pause is
+acceptable. `stats()` is how you decide:
+
+```ts
+const { reclaimableBytes, pendingEntries } = wal.stats();
+
+// Reclaim space, but not while there is a backlog worth streaming first.
+if (reclaimableBytes > 50_000_000 && pendingEntries < 1_000) {
+  wal.compact();
+}
+```
+
+### Metrics and health
+
+```ts
+// Prometheus text format, or whatever your collector wants.
+function metrics(): string {
+  const s = wal.stats();
+  return [
+    `wal_pending_entries ${s.pendingEntries}`,
+    `wal_bytes ${s.bytes}`,
+    `wal_reclaimable_bytes ${s.reclaimableBytes}`,
+    `wal_last_seq ${s.lastSeq}`,
+    `wal_checkpoint ${s.checkpoint}`,
+  ].join("
+");
+}
+
+// A backlog that stops draining is the signal that matters: appends are
+// outrunning the consumer, or the consumer is stuck.
+const healthy = wal.stats().pendingEntries < 10_000;
+```
+
+`pendingEntries` is the number to alert on. `bytes` growing while
+`pendingEntries` stays flat just means compaction is overdue, which is a cost
+problem rather than a correctness one.
+
+### Why `reclaimableBytes` is not free
+
+It cannot be computed from the other four. Two logs with identical `lastSeq`,
+`checkpoint` and `bytes` can differ by more than an order of magnitude in what
+compaction would release, depending on which records happen to be large. The
+library therefore keeps one byte length per pending record — a few bytes each,
+released as checkpoints advance. Everything else in `stats()` is a plain
+counter.
 
 ## `close`
 

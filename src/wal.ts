@@ -7,7 +7,7 @@ import {
   readCheckpoint,
   readEntries,
   replaceFile,
-  scanLastSeq,
+  scanAccounting,
   syncDirectory,
   writeSurvivors,
 } from "./storage.js";
@@ -17,6 +17,7 @@ import type {
   WalCursor,
   WalEntry,
   WalOptions,
+  WalStats,
 } from "./types.js";
 
 const debug = debuglog("process-wal");
@@ -58,7 +59,17 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   healTail(walPath, fsync);
 
   let checkpointSeq = readCheckpoint(checkpointPath);
-  let lastSeq = Math.max(checkpointSeq, scanLastSeq<T>(walPath));
+  // The same pass that validates the log measures it, so stats() never reads
+  // the filesystem: every counter below is maintained from here on.
+  const opened = scanAccounting<T>(walPath, checkpointSeq);
+  let lastSeq = Math.max(checkpointSeq, opened.lastSeq);
+  let bytes = opened.bytes;
+  let reclaimableBytes = opened.reclaimableBytes;
+  // pendingSizes[i] is the byte length of the record at checkpointSeq + 1 + i.
+  // reclaimableBytes cannot be derived from lastSeq and checkpoint alone: two
+  // logs with identical counters differ by whichever records happen to be
+  // large, so the per-record lengths have to be kept.
+  let pendingSizes = opened.pendingSizes;
   let fd = fs.openSync(walPath, "a");
   let closed = false;
   let activeCursors = 0;
@@ -102,6 +113,8 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     // Publish the seq only after the full record reaches the selected
     // durability boundary (page cache, or storage when fsync is enabled).
     lastSeq = next;
+    bytes += data.length;
+    pendingSizes.push(data.length);
     return lastSeq;
   };
 
@@ -110,7 +123,14 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     checkSeq(nextCheckpoint, "checkpoint");
     if (nextCheckpoint <= checkpointSeq) return;
     replaceFile(checkpointPath, String(nextCheckpoint), fsync, dir);
-    // Memory advances only after the atomic replacement succeeds.
+    // Memory advances only after the atomic replacement succeeds. A checkpoint
+    // beyond the last append covers every pending record, hence the clamp.
+    const covered = Math.min(
+      nextCheckpoint - checkpointSeq,
+      pendingSizes.length,
+    );
+    for (let i = 0; i < covered; i += 1) reclaimableBytes += pendingSizes[i];
+    pendingSizes = pendingSizes.slice(covered);
     checkpointSeq = nextCheckpoint;
     lastSeq = Math.max(lastSeq, nextCheckpoint);
   };
@@ -131,6 +151,10 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
       fd = fs.openSync(walPath, "a");
     }
     if (fsync) syncDirectory(dir);
+    // writeSurvivors keeps exactly the records above the checkpoint, so what
+    // the file lost is precisely what was reclaimable.
+    bytes -= reclaimableBytes;
+    reclaimableBytes = 0;
     compactPending = false;
   };
 
@@ -162,6 +186,19 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
       return;
     }
     compactNow();
+  };
+
+  const stats = (): WalStats => {
+    assertOpen();
+    return {
+      lastSeq,
+      checkpoint: checkpointSeq,
+      // The array length is the ground truth, not lastSeq - checkpointSeq:
+      // it counts records that are actually in the file.
+      pendingEntries: pendingSizes.length,
+      bytes,
+      reclaimableBytes,
+    };
   };
 
   // Idempotent, unlike every other method. Releasing a resource twice is what
@@ -199,6 +236,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     replay,
     cursor,
     compact,
+    stats,
     close,
     [Symbol.dispose]: close,
   };

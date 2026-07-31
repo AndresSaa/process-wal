@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
@@ -111,6 +111,83 @@ describe("recovery over arbitrary log content", () => {
         second.close();
       }),
       { numRuns: 150 },
+    );
+  });
+});
+
+describe("stats never drifts from the file", () => {
+  type Op =
+    | { kind: "append"; value: unknown }
+    | { kind: "checkpoint"; ahead: number }
+    | { kind: "compact" };
+
+  const ops = fc.array(
+    fc.oneof(
+      fc.record({
+        kind: fc.constant("append" as const),
+        value: fc.jsonValue(),
+      }),
+      fc.record({
+        kind: fc.constant("checkpoint" as const),
+        // Occasionally overshoots the last append, which is legal and moves
+        // the sequence forward.
+        ahead: fc.integer({ min: 0, max: 3 }),
+      }),
+      fc.record({ kind: fc.constant("compact" as const) }),
+    ),
+    { maxLength: 40 },
+  );
+
+  it("agrees with the filesystem after any sequence of operations", () => {
+    fc.assert(
+      fc.property(ops, (operations) => {
+        const dir = tempDir();
+        const wal = createWal({ dir });
+
+        for (const op of operations as Op[]) {
+          if (op.kind === "append") wal.append(op.value);
+          else if (op.kind === "compact") wal.compact();
+          else wal.checkpoint(wal.stats().lastSeq + op.ahead);
+        }
+
+        const stats = wal.stats();
+        expect(stats.bytes).toBe(statSync(walPath(dir)).size);
+        expect(stats.pendingEntries).toBe(wal.replay().length);
+        expect(stats.checkpoint).toBeLessThanOrEqual(stats.lastSeq);
+        expect(stats.reclaimableBytes).toBeLessThanOrEqual(stats.bytes);
+
+        // The headline promise: reclaimableBytes is exactly what compact frees.
+        const predicted = stats.reclaimableBytes;
+        const before = statSync(walPath(dir)).size;
+        wal.compact();
+        expect(before - statSync(walPath(dir)).size).toBe(predicted);
+        expect(wal.stats().reclaimableBytes).toBe(0);
+        wal.close();
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("reconstructs the same counters after a restart", () => {
+    fc.assert(
+      fc.property(ops, (operations) => {
+        const dir = tempDir();
+        const first = createWal({ dir });
+        for (const op of operations as Op[]) {
+          if (op.kind === "append") first.append(op.value);
+          else if (op.kind === "compact") first.compact();
+          else first.checkpoint(first.stats().lastSeq + op.ahead);
+        }
+        const before = first.stats();
+        first.close();
+
+        // Counters maintained in memory must match the ones rebuilt by the
+        // open-time scan, or a restart would silently change the policy.
+        const second = createWal({ dir });
+        expect(second.stats()).toEqual(before);
+        second.close();
+      }),
+      { numRuns: 200 },
     );
   });
 });

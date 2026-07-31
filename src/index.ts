@@ -6,4 +6,5 @@ export type {
   WalCursor,
   WalEntry,
   WalOptions,
+  WalStats,
 } from "./types.js";

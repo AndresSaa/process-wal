@@ -30,6 +30,20 @@ export interface WalCursor<T = unknown> extends AsyncIterableIterator<
   [Symbol.asyncDispose](): Promise<void>;
 }
 
+/** A snapshot of the log's size and position, for policy and metrics. */
+export interface WalStats {
+  /** Highest sequence number issued by this instance. */
+  lastSeq: number;
+  /** Highest sequence number marked processed. */
+  checkpoint: number;
+  /** Records above the checkpoint — what replay() would return. */
+  pendingEntries: number;
+  /** Current size of the log in bytes. */
+  bytes: number;
+  /** Bytes that compact() would release right now. */
+  reclaimableBytes: number;
+}
+
 export interface Wal<T = unknown> {
   /** Persist a JSON-serializable value before returning its sequence number. */
   append(value: T): number;
@@ -41,6 +55,8 @@ export interface Wal<T = unknown> {
   cursor(options?: CursorOptions): WalCursor<T>;
   /** Atomically remove checkpointed records from the log. */
   compact(): void;
+  /** Read the log's size and position without touching disk. */
+  stats(): WalStats;
   /** Flush when configured and release the writer. Idempotent. */
   close(): void;
   /** Alias for close(), so `using wal = createWal()` releases it. */

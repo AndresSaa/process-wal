@@ -64,9 +64,9 @@ guessing.
 - **Zero runtime dependencies.** Only Node built-ins (`fs`, `path`). A PR that
   adds a runtime dependency is wrong by definition, whatever it fixes.
 - **Closed API surface:** `createWal`, `createNoopWal`; methods `append`,
-  `checkpoint`, `replay`, `cursor`, `compact`, `close`, plus `[Symbol.dispose]`
-  on a WAL and `[Symbol.asyncDispose]` on a cursor. New surface requires a
-  brief amendment first.
+  `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`, plus
+  `[Symbol.dispose]` on a WAL and `[Symbol.asyncDispose]` on a cursor. New
+  surface requires a brief amendment first.
 - **Synchronous by design.** `append`/`checkpoint`/`compact`/`close` are sync —
   that's the durability contract (the record reaches the kernel before we
   return). Do not "improve" them into async. Only `cursor` is async.
@@ -105,6 +105,10 @@ guessing.
    properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
    `ERR_ENTRY_NOT_SERIALIZABLE`), not exported classes.
 7. The `compactInterval` timer is `unref()`'d and cleared by `close()`.
+8. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
+   what `replay()` returns and `reclaimableBytes` equals what `compact()` would
+   free — both exactly, both maintained through append, checkpoint, compaction
+   and heal-on-open.
 
 ## Change workflow
 

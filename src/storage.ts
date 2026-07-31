@@ -33,12 +33,34 @@ export function readEntries<T>(path: string): Array<WalEntry<T>> {
   return lines.map((line) => decode<T>(line));
 }
 
-export function scanLastSeq<T>(path: string): number {
+export interface WalAccounting {
+  lastSeq: number;
+  bytes: number;
+  reclaimableBytes: number;
+  /** Byte length of each record above the checkpoint, in sequence order. */
+  pendingSizes: number[];
+}
+
+/**
+ * One pass over the log that both validates it and measures it. Startup already
+ * had to read every record to check the sequence is increasing, so the byte
+ * accounting stats() needs is free here — a second pass would not be.
+ */
+export function scanAccounting<T>(
+  path: string,
+  checkpointSeq: number,
+): WalAccounting {
+  const empty: WalAccounting = {
+    lastSeq: 0,
+    bytes: 0,
+    reclaimableBytes: 0,
+    pendingSizes: [],
+  };
   let fd: number;
   try {
     fd = fs.openSync(path, "r");
   } catch (error) {
-    if (isMissing(error)) return 0;
+    if (isMissing(error)) return empty;
     throw error;
   }
 
@@ -48,6 +70,9 @@ export function scanLastSeq<T>(path: string): number {
   const decoder = new StringDecoder("utf8");
   let pending = "";
   let highest = 0;
+  let bytes = 0;
+  let reclaimableBytes = 0;
+  const pendingSizes: number[] = [];
   const accept = (line: string): void => {
     if (!line) return;
     const entry = decode<T>(line);
@@ -55,6 +80,12 @@ export function scanLastSeq<T>(path: string): number {
       throw new SyntaxError("WAL sequence numbers must increase");
     }
     highest = entry.seq;
+    // healTail has already truncated any record not ending in a newline, so
+    // every line counted here is one byte shorter than the record on disk.
+    const size = Buffer.byteLength(line) + 1;
+    bytes += size;
+    if (entry.seq <= checkpointSeq) reclaimableBytes += size;
+    else pendingSizes.push(size);
   };
   try {
     let bytesRead: number;
@@ -67,7 +98,7 @@ export function scanLastSeq<T>(path: string): number {
     } while (bytesRead > 0);
     pending += decoder.end();
     accept(pending);
-    return highest;
+    return { lastSeq: highest, bytes, reclaimableBytes, pendingSizes };
   } finally {
     fs.closeSync(fd);
   }
