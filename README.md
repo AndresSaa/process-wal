@@ -37,12 +37,13 @@ If a service acknowledges work before that work is recoverable, a restart can si
 
 - [Install](#install)
 - [How it works](#how-it-works)
+- [API](#api)
+- [Examples](#examples)
 - [Durability model](#durability-model)
 - [At-least-once, not exactly-once](#at-least-once-not-exactly-once)
 - [How it compares](#how-it-compares)
 - [When it fits](#when-it-fits)
 - [When not to use it](#when-not-to-use-it)
-- [API](#api)
 - [Further reading](#further-reading)
 
 </details>
@@ -62,6 +63,61 @@ Published with [provenance](https://docs.npmjs.com/generating-provenance-stateme
 ![Sequence diagram: a producer sends work to a service, which appends it to process-wal and only acknowledges the producer once the append returns a sequence number; the side effect runs downstream, and only after it succeeds does the service checkpoint that sequence. Anything not checkpointed replays after a restart.](https://raw.githubusercontent.com/AndresSaa/process-wal/main/.github/assets/readme-flow.webp)
 
 `append`, `checkpoint`, `compact`, and `close` are synchronous by design. A successful `append` means the complete record reached the selected durability boundary before its sequence number was returned.
+
+## API
+
+```ts
+const wal = createWal<T>({
+  dir: "./data", // holds wal.jsonl and wal.checkpoint
+  fsync: false, // page cache, or storage — see Durability model
+  compactInterval: null, // ms; the timer is unref'ed. null disables it
+  maxEntryBytes: 1_048_576, // per record, before ERR_ENTRY_TOO_LARGE
+});
+```
+
+Those are the defaults; every option can be omitted. Invalid values throw `RangeError` at construction.
+
+| Method                 | Contract                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `append(value)`        | JSON-serializes and persists a value, then returns its monotonic sequence number        |
+| `checkpoint(seq)`      | Marks every entry through `seq` processed; lower or equal checkpoints are no-ops        |
+| `replay()`             | Materializes entries after the current checkpoint in append order                       |
+| `cursor({ fromSeq? })` | Streams an exclusive-`fromSeq`, checkpoint-and-file-size snapshot                       |
+| `compact()`            | Atomically removes checkpointed records; defers while any cursor owns a file descriptor |
+| `close()`              | Clears the unref'ed compaction timer, optionally flushes, and releases the writer       |
+
+A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
+
+Every method throws an error with `code: "ERR_WAL_CLOSED"` after `close()`. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+
+> [!IMPORTANT]
+> Two lifecycle details worth knowing before they surprise you:
+>
+> - **`close()` is not idempotent.** A second call throws `ERR_WAL_CLOSED`. Guard it if your shutdown path can run twice.
+> - **A cursor owns its descriptor until it finishes.** Draining it, `break`ing out of a `for await`, or calling `return()` all release it. Abandoning one keeps the descriptor open for the life of the process, which locks the file on Windows and defers `compact()` indefinitely.
+
+### Large backlogs
+
+`replay()` is convenient for bounded queues and is the only operation that materializes the log. `cursor()` keeps iteration memory bounded and freezes its checkpoint and byte length when created:
+
+```ts
+for await (const { seq, value } of wal.cursor({ fromSeq: 0 })) {
+  await processJob(value);
+  wal.checkpoint(seq);
+}
+```
+
+### Optional persistence
+
+`createNoopWal<T>()` exposes the same lifecycle and sequence shape without disk I/O — a dependency-injection seam for applications where persistence is configurable:
+
+```ts
+const wal = persistenceEnabled ? createWal(options) : createNoopWal();
+```
+
+## Examples
+
+Worked scenarios for every method — what each one is for, what it rejects, and the mistakes that cost you data — are in **[docs/examples.md](https://github.com/AndresSaa/process-wal/blob/main/docs/examples.md)**: batching checkpoints, resuming a cursor with `fromSeq`, releasing a cursor early, guarding a shutdown path that can run twice, swapping in `createNoopWal` for tests, and a complete webhook receiver that survives a deploy mid-request.
 
 ## Durability model
 
@@ -128,57 +184,9 @@ Further alternatives, with the case for each, are in [docs/alternatives.md](http
 - Work that requires transactions, queries, priorities, leases, or routing.
 - A system that already owns the relevant data in a transactional database — use an outbox in that database instead.
 
-## API
-
-```ts
-const wal = createWal<T>({
-  dir: "./data",
-  fsync: false,
-  compactInterval: null,
-  maxEntryBytes: 1_048_576,
-});
-```
-
-| Method                 | Contract                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `append(value)`        | JSON-serializes and persists a value, then returns its monotonic sequence number        |
-| `checkpoint(seq)`      | Marks every entry through `seq` processed; lower or equal checkpoints are no-ops        |
-| `replay()`             | Materializes entries after the current checkpoint in append order                       |
-| `cursor({ fromSeq? })` | Streams an exclusive-`fromSeq`, checkpoint-and-file-size snapshot                       |
-| `compact()`            | Atomically removes checkpointed records; defers while any cursor owns a file descriptor |
-| `close()`              | Clears the unref'ed compaction timer, optionally flushes, and releases the writer       |
-
-A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
-
-Every method throws an error with `code: "ERR_WAL_CLOSED"` after `close()`. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
-
-> [!IMPORTANT]
-> Two lifecycle details worth knowing before they surprise you:
->
-> - **`close()` is not idempotent.** A second call throws `ERR_WAL_CLOSED`. Guard it if your shutdown path can run twice.
-> - **A cursor owns its descriptor until it finishes.** Draining it, `break`ing out of a `for await`, or calling `return()` all release it. Abandoning one keeps the descriptor open for the life of the process, which locks the file on Windows and defers `compact()` indefinitely.
-
-### Large backlogs
-
-`replay()` is convenient for bounded queues and is the only operation that materializes the log. `cursor()` keeps iteration memory bounded and freezes its checkpoint and byte length when created:
-
-```ts
-for await (const { seq, value } of wal.cursor({ fromSeq: 0 })) {
-  await processJob(value);
-  wal.checkpoint(seq);
-}
-```
-
-### Optional persistence
-
-`createNoopWal<T>()` exposes the same lifecycle and sequence shape without disk I/O — a dependency-injection seam for applications where persistence is configurable:
-
-```ts
-const wal = persistenceEnabled ? createWal(options) : createNoopWal();
-```
-
 ## Further reading
 
+- **[docs/examples.md](https://github.com/AndresSaa/process-wal/blob/main/docs/examples.md)** — every method in the situation it exists for, plus a complete worked service.
 - **[docs/durability.md](https://github.com/AndresSaa/process-wal/blob/main/docs/durability.md)** — the full recovery contract: torn records, corrupt checkpoints, atomic replacement, and the manual repair procedure when the log refuses to open.
 - **[docs/internals.md](https://github.com/AndresSaa/process-wal/blob/main/docs/internals.md)** — design-decision table, per-operation cost and memory profile, source layout, and debugging with `NODE_DEBUG=process-wal`.
 - **[docs/benchmarks.md](https://github.com/AndresSaa/process-wal/blob/main/docs/benchmarks.md)** — methodology and results for both durability modes.
