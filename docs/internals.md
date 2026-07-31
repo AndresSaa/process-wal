@@ -20,11 +20,17 @@ Every row is a requirement, the decision it forced, and the cost that decision i
 | ---------- | ----------------------- | ------------------------------------- | ----------------------------------------------- |
 | Open       | O(log bytes) validation | One entry plus a 64 KiB scan buffer   | Heals an incomplete final record                |
 | Append     | O(entry bytes)          | One encoded record                    | Append; optional `fsync`                        |
+| AppendMany | O(batch bytes)          | The whole encoded batch               | One append; one optional `fsync`                |
 | Checkpoint | O(1)                    | Constant                              | Temp file, flush when enabled, then rename      |
 | Replay     | O(log bytes)            | Materializes the log before filtering | Read only                                       |
 | Cursor     | O(snapshot bytes)       | Stream buffer plus current entry      | Own read descriptor; frozen end offset          |
 | Compact    | O(log bytes)            | One entry plus a 64 KiB scan buffer   | Temporary replacement; briefly needs extra disk |
 | Stats      | O(1)                    | Constant                              | None — reads counters, never the filesystem     |
+
+`appendMany()` is the one operation whose memory scales with its argument: the
+batch is encoded in full before anything is written, so the encoded bytes are
+held at once. That is what buys the single flush, and it is bounded by the
+caller's batch size rather than by the log.
 
 `stats()` is the only operation that touches no descriptor at all. Its counters
 are set by the open-time scan and maintained by append, checkpoint and

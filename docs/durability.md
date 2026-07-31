@@ -13,6 +13,22 @@ A successful `append` means the complete record reached the selected durability 
 
 With `fsync: true`, the flush path covers appends, checkpoint replacement, compaction, and `close()`. Filesystem, storage-controller, and hardware guarantees still apply underneath; no userspace library can strengthen them. A drive that lies about its write cache will lie to `process-wal` too.
 
+### And what `appendMany` promises
+
+The same, extended to the batch: if the call returns, every record in it reached
+the boundary above. One write and one flush cover the whole batch.
+
+It is **not** atomic against a crash. A single `write` is not guaranteed atomic
+for a regular file, so a process killed mid-call can leave a prefix of the batch
+on disk. Those records are complete and newline-terminated, so they replay like
+any other work that was never acknowledged, and a torn final record is truncated
+on open exactly as usual. Nothing is lost that was promised, and nothing is
+promised that was not returned.
+
+Serialisation is the one failure that _is_ all-or-nothing: the batch is encoded
+before any of it is written, so a value that cannot be serialised fails the call
+with the log and the sequence untouched.
+
 ## Atomicity of state files
 
 Checkpoint and compaction write a temporary file and replace the live file with `rename`. A crash can leave a `.tmp` file behind, but it cannot leave a half-written live checkpoint.
