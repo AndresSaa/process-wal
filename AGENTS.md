@@ -11,20 +11,16 @@ host-crash durability. Single writer, append-and-replay, split across small
 single-purpose modules of which none exceeds ~200 lines. That smallness is the
 product — treat scope as a constraint, not a starting point.
 
-**Source of truth:** `../process-wal-definition.md` (one directory above the repo
-root — the build brief: motivation, API contract, edge semantics, test plan,
-milestones). Read it before touching the API surface. If a change contradicts the
-brief, update the brief first (with the user), then the code.
+It exists because an email marketing project was losing tracking events that had
+already been acknowledged to the webhook that delivered them. That is still the
+shape of the problem it solves.
 
-**Reference implementation** (on this machine):
-`C:\Users\andre\Projects\marfeel\ta-weather-station\server\ingestor\wal.js` — the
-production original this library is extracted from — and `writer.js` next to it,
-the real consumer that shows how the API is used in anger. The brief's §13
-(origin note) explains why they matter.
+**The contract lives in this repository.** The invariants below, the tests, and
+the public types are the source of truth — there is no external document.
 
 ## Commands
 
-Canonical once the relevant tooling milestone lands:
+Canonical:
 
 ```sh
 npm run build        # tsup — dual CJS/ESM + .d.ts into dist/
@@ -67,7 +63,7 @@ guessing.
 - **Closed API surface:** `createWal`, `createNoopWal`; methods `append`,
   `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`, plus
   `[Symbol.dispose]` on a WAL and `[Symbol.asyncDispose]` on a cursor. New
-  surface requires a brief amendment first.
+  surface requires amending the invariants below first.
 - **Synchronous by design.** `append`/`checkpoint`/`compact`/`close` are sync —
   that's the durability contract (the record reaches the kernel before we
   return). Do not "improve" them into async. Only `cursor` is async.
@@ -82,7 +78,7 @@ guessing.
   describing how two modules talk to each other live with the module that owns
   them, so `types.ts` keeps answering "what does a consumer get?" on its own.
 - **Minimal repository surface.** Add documentation, configuration, templates,
-  and generated artifacts only when a current milestone uses them. Prefer a
+  and generated artifacts only when something in the repository uses them. Prefer a
   readable package script over a one-option config file, and remove obsolete
   scaffolding instead of preserving it for hypothetical future needs.
 - **The comments are the spec.** Comments explain _why_ (durable-before-ack,
@@ -124,13 +120,12 @@ guessing.
 Follow this sequence for every code, behavior, configuration, or documentation
 change:
 
-1. **Understand the contract.** Read the relevant brief section, current tests,
-   and implementation before editing. Check the production reference when the
-   change touches append-before-ack, checkpointing, recovery, or batching
-   semantics.
+1. **Understand the contract.** Read the invariants below, the current tests,
+   and the implementation before editing.
 2. **Classify the impact.** State whether the change affects the public API,
    durability contract, on-disk format, performance, packaging, or only internal
-   structure. Amend the brief with the user before changing a closed contract.
+   structure. Amend the invariants below with the user before changing a closed
+   contract.
 3. **Implement the smallest coherent change.** Preserve zero runtime
    dependencies, synchronous durability methods, stable error codes, and clear
    responsibility boundaries. Remove superseded code or configuration in the
@@ -157,7 +152,7 @@ change:
    - Internal refactors, tests, and CI-only work need no changelog entry unless
      they alter observable behavior or supported environments.
    - A durability statement may be documented only when a test demonstrates it.
-7. **Review the final diff.** Confirm code, tests, README, changelog, brief, and
+7. **Review the final diff.** Confirm code, tests, README, changelog, and
    package metadata agree; remove temporary output and unrelated scaffolding;
    then report the exact commands and results used for validation.
 
@@ -166,9 +161,8 @@ change:
 ### Branches
 
 - `main` is protected — never commit to it directly, even for docs.
-- One branch per milestone, in the brief's §11 order (`chore/scaffold` →
-  `feat/core-wal` → … → `chore/release`). Prefixes: `feat/`, `fix/`, `test/`,
-  `chore/`, `docs/`, `refactor/`; kebab-case after the slash.
+- One branch per change. Prefixes: `feat/`, `fix/`, `test/`, `chore/`, `docs/`,
+  `refactor/`; kebab-case after the slash.
 - Branch from an up-to-date `main`; rebase onto `main` to update (no merge
   commits from `main` into feature branches).
 
@@ -197,8 +191,8 @@ applies to every agent and tool working in this repository, with no exceptions.
 - Accumulate user-visible changes under `[Unreleased]` as they land. Write for
   the changelog reader — what the release does for them — not for the reviewer.
 - Mapping: `fix` → patch, `feat` → minor, breaking → major. The package is
-  `1.0.0`, so the §4 contract is a real commitment: **any breaking change to it
-  is a major version.** Never quietly widen or narrow the contract in a patch.
+  released and stable, so the contract invariants above are a real commitment:
+  **any breaking change to them is a major version.** Never quietly widen or narrow the contract in a patch.
 - Release flow: move `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, bump `version` in
   `package.json`, merge that PR, then push the matching `vX.Y.Z` tag. The tag
   triggers `release.yml`, which republishes only if the tag and `package.json`
@@ -214,12 +208,12 @@ applies to every agent and tool working in this repository, with no exceptions.
   re-targets a stacked PR when its base branch is deleted on merge — so the work
   reports as merged while `main` never receives it. This has already cost this
   repository one full recovery.
-- One milestone per PR; keep diffs reviewable (aim under ~400 lines; split if a
-  milestone outgrows that).
+- One concern per PR; keep diffs reviewable (aim under ~400 lines; split if a
+  change outgrows that).
 - **Title in conventional-commit format** — PRs are squash-merged, so the title
   becomes the commit on `main` and must parse like one.
 - Body covers: what changed and why, how it was tested (paste real output for
-  durability claims), and any impact on the §4 contract/edge semantics.
+  durability claims), and any impact on the contract invariants.
 - Squash-merge only; `main` history stays linear. Never force-push `main`; never
   skip hooks (`--no-verify`) or CI to get a merge through.
 - Merge requires green CI — lint + test + build across the **full Node × OS
@@ -244,6 +238,6 @@ applies to every agent and tool working in this repository, with no exceptions.
   _is_ the unit under test. No fs mocking.
 - Integration tests spawn child processes and `SIGKILL` them mid-work; keep them
   deterministic (explicit sync points, not sleeps).
-- The durability test list in the brief's §7 is the checklist; the torn-tail
+- The contract invariants above are the durability checklist; the torn-tail
   healing test and the checkpoint-corruption test are the two most commonly
   forgotten.
