@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { createInterface } from "node:readline";
-import { decode } from "./storage.js";
+import { decode } from "./record.js";
 import type { WalCursor, WalEntry } from "./types.js";
 
 interface FrozenCursorOptions {

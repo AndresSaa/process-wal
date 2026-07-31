@@ -7,8 +7,9 @@ before changing anything.
 
 A zero-dependency, pure-TypeScript write-ahead log for Node.js: durability across
 _process_ restarts via the kernel page cache, with `fsync` as the opt-in for
-host-crash durability. Single writer, append-and-replay, ~150 lines of core code.
-That smallness is the product — treat scope as a constraint, not a starting point.
+host-crash durability. Single writer, append-and-replay, split across small
+single-purpose modules of which none exceeds ~200 lines. That smallness is the
+product — treat scope as a constraint, not a starting point.
 
 **Source of truth:** `../process-wal-definition.md` (one directory above the repo
 root — the build brief: motivation, API contract, edge semantics, test plan,
@@ -64,14 +65,22 @@ guessing.
 - **Zero runtime dependencies.** Only Node built-ins (`fs`, `path`). A PR that
   adds a runtime dependency is wrong by definition, whatever it fixes.
 - **Closed API surface:** `createWal`, `createNoopWal`; methods `append`,
-  `checkpoint`, `replay`, `cursor`, `compact`, `close`, plus `[Symbol.dispose]`
-  on a WAL and `[Symbol.asyncDispose]` on a cursor. New surface requires a
-  brief amendment first.
+  `checkpoint`, `replay`, `cursor`, `compact`, `stats`, `close`, plus
+  `[Symbol.dispose]` on a WAL and `[Symbol.asyncDispose]` on a cursor. New
+  surface requires a brief amendment first.
 - **Synchronous by design.** `append`/`checkpoint`/`compact`/`close` are sync —
   that's the durability contract (the record reaches the kernel before we
   return). Do not "improve" them into async. Only `cursor` is async.
-- **~150 lines of core.** If `src/wal.ts` grows well past that, something is
-  being gold-plated.
+- **~200 lines per module, and one job each.** The budget is per file, not for
+  the package: `wal.ts` decides _when_ things happen, and the modules it calls
+  know _how_. A file growing past ~200 lines usually means it has picked up a
+  second responsibility — extract that rather than trimming comments, which are
+  the spec. Raised from 150 once `stats()` and the disposal protocol landed;
+  raise it again only with the same kind of argument, never to make room.
+- **`types.ts` is the public contract and nothing else.** Every type in it is
+  re-exported by `index.ts`, and every type `index.ts` exports is in it. Types
+  describing how two modules talk to each other live with the module that owns
+  them, so `types.ts` keeps answering "what does a consumer get?" on its own.
 - **Minimal repository surface.** Add documentation, configuration, templates,
   and generated artifacts only when a current milestone uses them. Prefer a
   readable package script over a one-option config file, and remove obsolete
@@ -105,6 +114,10 @@ guessing.
    properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
    `ERR_ENTRY_NOT_SERIALIZABLE`), not exported classes.
 7. The `compactInterval` timer is `unref()`'d and cleared by `close()`.
+8. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
+   what `replay()` returns and `reclaimableBytes` equals what `compact()` would
+   free — both exactly, both maintained through append, checkpoint, compaction
+   and heal-on-open.
 
 ## Change workflow
 

@@ -134,6 +134,70 @@ describe("createWal", () => {
     reopened.close();
   });
 
+  it("reports position and size without touching disk", () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+
+    expect(wal.stats()).toEqual({
+      lastSeq: 0,
+      checkpoint: 0,
+      pendingEntries: 0,
+      bytes: 0,
+      reclaimableBytes: 0,
+    });
+
+    wal.append("x".repeat(500));
+    wal.append("small");
+    const full = wal.stats();
+    expect(full.lastSeq).toBe(2);
+    expect(full.pendingEntries).toBe(2);
+    expect(full.bytes).toBe(statSync(`${dir}/wal.jsonl`).size);
+    // Nothing is checkpointed, so compact() would free nothing.
+    expect(full.reclaimableBytes).toBe(0);
+
+    wal.checkpoint(1);
+    const half = wal.stats();
+    expect(half.checkpoint).toBe(1);
+    expect(half.pendingEntries).toBe(1);
+    // The large record is the one that became reclaimable, which is why this
+    // cannot be derived from counts alone.
+    expect(half.reclaimableBytes).toBeGreaterThan(500);
+    expect(half.reclaimableBytes).toBeLessThan(half.bytes);
+
+    wal.compact();
+    expect(wal.stats()).toMatchObject({
+      reclaimableBytes: 0,
+      pendingEntries: 1,
+    });
+    expect(wal.stats().bytes).toBe(statSync(`${dir}/wal.jsonl`).size);
+    wal.close();
+  });
+
+  it("counts a checkpoint beyond the last append as covering everything", () => {
+    const wal = createWal<string>({ dir: tempDir() });
+    wal.append("one");
+    wal.append("two");
+    const { bytes } = wal.stats();
+
+    wal.checkpoint(10);
+
+    expect(wal.stats()).toMatchObject({
+      lastSeq: 10,
+      checkpoint: 10,
+      pendingEntries: 0,
+      reclaimableBytes: bytes,
+    });
+    wal.close();
+  });
+
+  it("throws ERR_WAL_CLOSED from stats after close", () => {
+    const wal = createWal({ dir: tempDir() });
+    wal.close();
+    expect(() => wal.stats()).toThrow(
+      expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
+    );
+  });
+
   it("validates numeric options and sequence inputs", () => {
     expect(() => createWal({ dir: tempDir(), maxEntryBytes: 0 })).toThrow(
       RangeError,
@@ -323,6 +387,13 @@ describe("createNoopWal", () => {
     expect(await collect(wal.cursor())).toEqual([]);
     wal.checkpoint(2);
     wal.compact();
+    expect(wal.stats()).toEqual({
+      lastSeq: 2,
+      checkpoint: 2,
+      pendingEntries: 0,
+      bytes: 0,
+      reclaimableBytes: 0,
+    });
     wal.close();
     expect(() => wal.append("closed")).toThrow(
       expect.objectContaining({ code: "ERR_WAL_CLOSED" }),

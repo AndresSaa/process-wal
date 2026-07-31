@@ -24,6 +24,14 @@ Every row is a requirement, the decision it forced, and the cost that decision i
 | Replay     | O(log bytes)            | Materializes the log before filtering | Read only                                       |
 | Cursor     | O(snapshot bytes)       | Stream buffer plus current entry      | Own read descriptor; frozen end offset          |
 | Compact    | O(log bytes)            | One entry plus a 64 KiB scan buffer   | Temporary replacement; briefly needs extra disk |
+| Stats      | O(1)                    | Constant                              | None — reads counters, never the filesystem     |
+
+`stats()` is the only operation that touches no descriptor at all. Its counters
+are set by the open-time scan and maintained by append, checkpoint and
+compaction, which is what makes it safe to call on a metrics scrape. The one
+counter that is not free is `reclaimableBytes`: it needs the byte length of each
+pending record, because two logs with identical sequence numbers and total size
+can differ more than tenfold in what compaction would release.
 
 `replay()` is the only operation that materializes the log, which is why `cursor()` exists for backlogs that will not fit in memory comfortably. Open, compaction, and cursors all stream.
 
@@ -33,11 +41,25 @@ Manual compaction makes disk-growth policy explicit and is the simplest default.
 
 The source is split by responsibility:
 
-- `src/wal.ts` — lifecycle, sequencing, compaction, and public orchestration.
+- `src/wal.ts` — lifecycle, sequencing, and public orchestration.
+- `src/record.ts` — the on-disk record format: encode and decode one entry.
+- `src/scan.ts` — bounded-memory reads of the log, including the open-time pass that validates and measures it in one go.
+- `src/storage.ts` — durability primitives: heal-on-open, atomic replacement, compaction, directory flush.
+- `src/accounting.ts` — the byte and entry counters behind `stats()`.
+- `src/validate.ts` — option resolution, sequence checks, and the coded errors.
 - `src/cursor.ts` — frozen streaming snapshots and descriptor release.
-- `src/storage.ts` — bounded-memory validation, recovery, flushing, and atomic replacement primitives.
 - `src/noop.ts` — the lifecycle without storage.
 - `src/types.ts` — the complete public contract.
+
+`types.ts` holds the public contract and nothing else: every type in it is
+re-exported by `index.ts`, and every type `index.ts` exports is in it. Types
+that only describe how two modules talk to each other — `WalAccounting`,
+`Accounting`, `FrozenCursorOptions` — stay with the module that owns them, so
+`types.ts` keeps answering "what does a consumer get?" without cross-referencing.
+
+No module owns two jobs. `wal.ts` decides _when_ things happen; the others know
+_how_. That boundary is why `wal.ts` can be read start to finish without
+following a call into the filesystem.
 
 Comments explain only the non-obvious guarantees.
 

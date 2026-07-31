@@ -84,11 +84,31 @@ Those are the defaults; every option can be omitted. Invalid values throw `Range
 | `replay()`             | Materializes entries after the current checkpoint in append order                       |
 | `cursor({ fromSeq? })` | Streams an exclusive-`fromSeq`, checkpoint-and-file-size snapshot                       |
 | `compact()`            | Atomically removes checkpointed records; defers while any cursor owns a file descriptor |
+| `stats()`              | Returns the log's position and size from memory, without reading the filesystem         |
 | `close()`              | Clears the unref'ed compaction timer, optionally flushes, and releases the writer       |
 
 A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
 
 Every method except `close()` throws an error with `code: "ERR_WAL_CLOSED"` once the WAL is closed. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+
+### Policy and metrics
+
+`stats()` answers "how far behind am I, and is it worth compacting?" from
+in-memory counters, so it is safe to call on a metrics scrape:
+
+```ts
+const { lastSeq, checkpoint, pendingEntries, bytes, reclaimableBytes } =
+  wal.stats();
+
+if (reclaimableBytes > 50_000_000) wal.compact();
+```
+
+`reclaimableBytes` is exactly what the next `compact()` would free, and
+`pendingEntries` is exactly what `replay()` would return — both are tested
+against the filesystem rather than asserted. Maintaining `reclaimableBytes`
+costs one number per pending record, because two logs with the same sequence
+numbers and total size can have wildly different reclaimable bytes depending on
+which records happen to be large.
 
 ### Disposal
 

@@ -1,77 +1,13 @@
 import * as fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { debuglog } from "node:util";
-import type { WalEntry } from "./types.js";
+import { decode } from "./record.js";
+import { isMissing } from "./validate.js";
 
 const debug = debuglog("process-wal");
 
-function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === "ENOENT";
-}
-
-export function decode<T>(line: string): WalEntry<T> {
-  const entry = JSON.parse(line) as Partial<WalEntry<T>>;
-  if (
-    !Number.isSafeInteger(entry.seq) ||
-    (entry.seq as number) < 1 ||
-    !Object.hasOwn(entry, "value")
-  ) {
-    throw new SyntaxError("invalid WAL entry");
-  }
-  return entry as WalEntry<T>;
-}
-
-export function readEntries<T>(path: string): Array<WalEntry<T>> {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(path, "utf8");
-  } catch (error) {
-    if (isMissing(error)) return [];
-    throw error;
-  }
-  const lines = raw.split("\n").filter(Boolean);
-  return lines.map((line) => decode<T>(line));
-}
-
-export function scanLastSeq<T>(path: string): number {
-  let fd: number;
-  try {
-    fd = fs.openSync(path, "r");
-  } catch (error) {
-    if (isMissing(error)) return 0;
-    throw error;
-  }
-
-  // Startup validates the full log without loading it. The only unbounded value
-  // retained is one entry, already limited by maxEntryBytes on append.
-  const chunk = Buffer.allocUnsafe(64 * 1024);
-  const decoder = new StringDecoder("utf8");
-  let pending = "";
-  let highest = 0;
-  const accept = (line: string): void => {
-    if (!line) return;
-    const entry = decode<T>(line);
-    if (entry.seq <= highest) {
-      throw new SyntaxError("WAL sequence numbers must increase");
-    }
-    highest = entry.seq;
-  };
-  try {
-    let bytesRead: number;
-    do {
-      bytesRead = fs.readSync(fd, chunk);
-      pending += decoder.write(chunk.subarray(0, bytesRead));
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) accept(line);
-    } while (bytesRead > 0);
-    pending += decoder.end();
-    accept(pending);
-    return highest;
-  } finally {
-    fs.closeSync(fd);
-  }
-}
+// Everything here exists so that a crash leaves the previous state or the next
+// one, never half of either.
 
 export function writeSurvivors(
   source: string,
@@ -111,6 +47,31 @@ export function writeSurvivors(
     fs.closeSync(input);
     fs.closeSync(output);
   }
+}
+
+/**
+ * Replace the log with only the records above the checkpoint. The writer has to
+ * be closed before the rename because Windows refuses to replace an open file,
+ * so this owns the descriptor swap and returns the reopened one.
+ */
+export function compactLog(
+  walPath: string,
+  fd: number,
+  keepAbove: number,
+  durable: boolean,
+  dir: string,
+): number {
+  const tmp = `${walPath}.tmp`;
+  writeSurvivors(walPath, tmp, keepAbove, durable);
+  fs.closeSync(fd);
+  let reopened: number;
+  try {
+    fs.renameSync(tmp, walPath);
+  } finally {
+    reopened = fs.openSync(walPath, "a");
+  }
+  if (durable) syncDirectory(dir);
+  return reopened;
 }
 
 export function readCheckpoint(path: string): number {

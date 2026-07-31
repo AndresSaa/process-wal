@@ -5,7 +5,33 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-07-31
+
+### Added
+
+- `stats()` returns the log's position and size without reading the
+  filesystem — `lastSeq`, `checkpoint`, `pendingEntries`, `bytes` and
+  `reclaimableBytes`. It is cheap enough for a metrics scrape or a health
+  check, which is what it exists for:
+
+  ```ts
+  if (wal.stats().reclaimableBytes > 50_000_000) wal.compact();
+  ```
+
+  Until now, deciding when to compact meant calling `fs.statSync` on a filename
+  that is an implementation detail, and there was no way at all to see the
+  backlog. `pendingEntries` is exactly what `replay()` would return and
+  `reclaimableBytes` is exactly what the next `compact()` would free; both are
+  verified against the filesystem across randomised operation sequences rather
+  than asserted.
+
+  `reclaimableBytes` is the one field that is not a plain counter. It cannot be
+  derived from the others — two logs with identical sequence numbers and total
+  size differ by more than tenfold depending on which records happen to be
+  large — so the WAL keeps one byte length per pending record and releases them
+  as checkpoints advance.
+
+- `WalStats` is exported for code that names the return type.
 
 ### Security
 
