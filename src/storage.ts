@@ -1,13 +1,52 @@
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { debuglog } from "node:util";
 import { decode } from "./record.js";
+import { join } from "node:path";
 import { isMissing } from "./validate.js";
 
 const debug = debuglog("process-wal");
 
 // Everything here exists so that a crash leaves the previous state or the next
 // one, never half of either.
+
+// A temporary is created exclusively, under a name nobody can predict. Opening
+// a fixed path with "w" follows whatever is already there, so an entry planted
+// in the directory — a symlink to a file outside it — would be written through.
+// "wx" refuses an existing entry, and the random suffix means there is nothing
+// to plant at.
+function temporaryFor(target: string): string {
+  return `${target}.${randomBytes(8).toString("hex")}.tmp`;
+}
+
+function discard(path: string): void {
+  try {
+    fs.rmSync(path, { force: true });
+  } catch {
+    // Cleanup is best-effort: the operation already failed, and sweepTemporaries
+    // collects whatever is left on the next open.
+  }
+}
+
+/**
+ * Remove temporaries abandoned by an interrupted checkpoint or compaction.
+ * Safe at open because the WAL is single-writer: nothing else owns them, and a
+ * compaction temporary can be as large as the log itself.
+ */
+export function sweepTemporaries(dir: string): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (/^wal\.(jsonl|checkpoint)\.[0-9a-f]{16}\.tmp$/.test(entry)) {
+      discard(join(dir, entry));
+    }
+  }
+}
 
 export function writeSurvivors(
   source: string,
@@ -16,7 +55,7 @@ export function writeSurvivors(
   durable: boolean,
 ): void {
   const input = fs.openSync(source, "r");
-  const output = fs.openSync(target, "w");
+  const output = fs.openSync(target, "wx");
 
   // Compaction is what bounds file growth, so it runs against the largest logs
   // by definition — the exact case a whole-file read cannot serve. Streaming
@@ -61,12 +100,20 @@ export function compactLog(
   durable: boolean,
   dir: string,
 ): number {
-  const tmp = `${walPath}.tmp`;
-  writeSurvivors(walPath, tmp, keepAbove, durable);
+  const tmp = temporaryFor(walPath);
+  try {
+    writeSurvivors(walPath, tmp, keepAbove, durable);
+  } catch (error) {
+    discard(tmp);
+    throw error;
+  }
   fs.closeSync(fd);
   let reopened: number;
   try {
     fs.renameSync(tmp, walPath);
+  } catch (error) {
+    discard(tmp);
+    throw error;
   } finally {
     reopened = fs.openSync(walPath, "a");
   }
@@ -107,11 +154,18 @@ export function replaceFile(
   dir: string,
 ): void {
   // A crash may leave the tmp file behind, but never a half-written checkpoint.
-  fs.writeFileSync(`${path}.tmp`, contents, {
-    encoding: "utf8",
-    flush: durable,
-  });
-  fs.renameSync(`${path}.tmp`, path);
+  const tmp = temporaryFor(path);
+  try {
+    fs.writeFileSync(tmp, contents, {
+      encoding: "utf8",
+      flush: durable,
+      flag: "wx",
+    });
+    fs.renameSync(tmp, path);
+  } catch (error) {
+    discard(tmp);
+    throw error;
+  }
   if (durable) syncDirectory(dir);
 }
 
