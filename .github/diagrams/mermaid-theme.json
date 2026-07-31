@@ -1,0 +1,36 @@
+{
+  "theme": "base",
+  "darkMode": true,
+  "fontFamily": "\"JetBrains Mono\", \"Fira Code\", \"Cascadia Code\", monospace",
+  "themeVariables": {
+    "darkMode": true,
+    "background": "#090B10",
+    "fontSize": "16px",
+    "nodeBorder": "#A970FF",
+
+    "actorBkg": "#171326",
+    "actorBorder": "#A970FF",
+    "actorTextColor": "#FFFFFF",
+    "actorLineColor": "#6B7280",
+
+    "signalColor": "#A970FF",
+    "signalTextColor": "#FFFFFF",
+    "sequenceNumberColor": "#090B10",
+
+    "noteBkgColor": "#171B24",
+    "noteTextColor": "#E5E7EB",
+    "noteBorderColor": "#6B7280",
+
+    "labelBoxBkgColor": "#12151D",
+    "labelBoxBorderColor": "#A970FF",
+    "labelTextColor": "#FFFFFF",
+    "loopTextColor": "#E5E7EB",
+
+    "activationBkgColor": "#10231A",
+    "activationBorderColor": "#78E69A"
+  },
+  "sequence": {
+    "diagramMarginX": 50,
+    "diagramMarginY": 50
+  }
+}
