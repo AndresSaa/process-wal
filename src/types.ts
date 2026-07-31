@@ -1,3 +1,12 @@
+// The public contract, and nothing else. Every type here is re-exported from
+// index.ts, and every type index.ts exports is here — so this file answers
+// "what does a consumer get?" on its own.
+//
+// Types that describe how a module talks to another module stay with that
+// module: WalAccounting in scan.ts, Accounting in accounting.ts,
+// FrozenCursorOptions in cursor.ts. Centralising those would cost this file its
+// one useful property.
+
 export interface WalOptions {
   /** Directory that owns wal.jsonl and wal.checkpoint. Default: ./data. */
   dir?: string;

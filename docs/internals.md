@@ -43,6 +43,12 @@ The source is split by responsibility:
 - `src/noop.ts` — the lifecycle without storage.
 - `src/types.ts` — the complete public contract.
 
+`types.ts` holds the public contract and nothing else: every type in it is
+re-exported by `index.ts`, and every type `index.ts` exports is in it. Types
+that only describe how two modules talk to each other — `WalAccounting`,
+`Accounting`, `FrozenCursorOptions` — stay with the module that owns them, so
+`types.ts` keeps answering "what does a consumer get?" without cross-referencing.
+
 No module owns two jobs. `wal.ts` decides _when_ things happen; the others know
 _how_. That boundary is why `wal.ts` can be read start to finish without
 following a call into the filesystem.
