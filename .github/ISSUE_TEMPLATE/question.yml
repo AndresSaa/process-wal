@@ -1,0 +1,42 @@
+name: Question
+description: Ask how something works, or whether this package fits your case
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome — if something needed asking, the documentation
+        probably needs improving, and that is useful to know.
+
+        A few are answered already: whether to use this instead of SQLite, a
+        broker, or an outbox is covered in
+        [docs/alternatives.md](https://github.com/AndresSaa/process-wal/blob/main/docs/alternatives.md),
+        and what survives which kind of crash is in
+        [docs/durability.md](https://github.com/AndresSaa/process-wal/blob/main/docs/durability.md).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What you are building
+      description: >
+        Optional, but it usually changes the answer. What work are you trying
+        not to lose, where does it run, and what restarts it — a deploy, a
+        container, a desktop app, a scheduled job?
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have already read or tried
+      description: >
+        Optional. Helps avoid answering with a link you have already seen.
+    validations:
+      required: false

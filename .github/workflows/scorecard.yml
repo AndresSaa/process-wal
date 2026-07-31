@@ -1,0 +1,42 @@
+name: Scorecard
+
+# Scorecard grades the repository's supply-chain posture — branch protection,
+# token permissions, pinned dependencies, release signing. It reads settings and
+# history, never the library's behaviour, so it runs on a schedule and on
+# landings rather than on every pull request.
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "39 4 * * 1"
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Analyse
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploads the SARIF result to code scanning.
+      security-events: write
+      # Mints the OIDC token that publish_results uses to prove the result came
+      # from this repository. Without it the badge has nothing to point at.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Required for both the badge and the public API. It also replaces the
+          # OpenSSF team's own weekly scan of this repository with ours.
+          publish_results: true
+
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif

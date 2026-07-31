@@ -7,6 +7,7 @@
 [![Runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-2ea44f)](https://github.com/AndresSaa/process-wal/blob/main/package.json)
 [![Modules](https://img.shields.io/badge/modules-ESM%20%2B%20CJS-7c3aed)](https://github.com/AndresSaa/process-wal/blob/main/package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/AndresSaa/process-wal/blob/main/LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/AndresSaa/process-wal/badge)](https://scorecard.dev/viewer/?uri=github.com/AndresSaa/process-wal)
 
 **Durability across Node.js process restarts — without SQLite, Redis, a broker, or native binaries.** Pure TypeScript, zero runtime dependencies, one clear job: append accepted work before you acknowledge it, replay whatever was not checkpointed, compact when convenient.
 
