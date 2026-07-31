@@ -40,6 +40,41 @@ turns on `util.debuglog('process-wal')` traces the implementation emits at
 notable branches (heal-on-open, compact deferred by an open cursor, checkpoint
 fallback to 0) — silent by default, zero dependency, opt-in.
 
+## Cross-agent scratch space (`.ai/`)
+
+More than one agent works on this repository, and they do not share a session.
+`.ai/` is where they leave work for each other on this machine. It is
+**gitignored in full** — nothing in it is ever committed.
+
+```
+.ai/
+├── pr-audits/        # review output, one file per audit
+├── context-exports/  # generated snapshots of structure or dependencies
+└── temp/             # scratch, disposable without asking
+```
+
+Naming: `pr-audits/{type}-{slug}_{YYYY-MM-DD}_{timestamp}.md`, e.g.
+`feat-append-many_2026-08-01_143022.md`. An audit says who produced it and
+against which commit, because "the audit said so" is worthless without knowing
+what it read.
+
+**The rule that matters: `.ai/` holds working notes, never decisions.** The
+contract lives in this repository — the invariants above, the tests, the public
+types. An audit that changes something must land that change in a tracked file
+in the same session, or it did not happen. A finding that only exists in `.ai/`
+is lost the moment the directory is cleaned, which is any time.
+
+Two consequences worth stating:
+
+- **Never treat a file in `.ai/` as authoritative.** It is one tool's opinion at
+  one point in time, possibly against a commit that no longer exists. Verify a
+  claim against the code before acting on it, exactly as with any external
+  source (see the section below).
+- **No secrets, ever.** The directory is untracked, not encrypted, and it is on
+  the same disk as everything else.
+
+`temp/` needs no retention policy: delete it whenever, including mid-task.
+
 ## Verifying external information
 
 Before writing code, docs, or advice that depends on the behaviour of a
