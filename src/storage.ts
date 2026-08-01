@@ -20,7 +20,7 @@ function temporaryFor(target: string): string {
   return `${target}.${randomBytes(8).toString("hex")}.tmp`;
 }
 
-function discard(path: string): void {
+export function discardTemporary(path: string): void {
   try {
     fs.rmSync(path, { force: true });
   } catch {
@@ -43,7 +43,7 @@ export function sweepTemporaries(dir: string): void {
   }
   for (const entry of entries) {
     if (/^wal\.(jsonl|checkpoint)\.[0-9a-f]{16}\.tmp$/.test(entry)) {
-      discard(join(dir, entry));
+      discardTemporary(join(dir, entry));
     }
   }
 }
@@ -89,36 +89,24 @@ export function writeSurvivors(
 }
 
 /**
- * Replace the log with only the records above the checkpoint. The writer has to
- * be closed before the rename because Windows refuses to replace an open file,
- * so this owns the descriptor swap and returns the reopened one.
+ * Write the records above the checkpoint to a fresh temporary and return its
+ * path. Renaming it over the log is the caller's job, because the caller owns
+ * the writer that has to be closed first and restored afterwards — and losing
+ * that writer is worse than a failed compaction.
  */
-export function compactLog(
+export function writeCompacted(
   walPath: string,
-  fd: number,
   keepAbove: number,
   durable: boolean,
-  dir: string,
-): number {
+): string {
   const tmp = temporaryFor(walPath);
   try {
     writeSurvivors(walPath, tmp, keepAbove, durable);
   } catch (error) {
-    discard(tmp);
+    discardTemporary(tmp);
     throw error;
   }
-  fs.closeSync(fd);
-  let reopened: number;
-  try {
-    fs.renameSync(tmp, walPath);
-  } catch (error) {
-    discard(tmp);
-    throw error;
-  } finally {
-    reopened = fs.openSync(walPath, "a");
-  }
-  if (durable) syncDirectory(dir);
-  return reopened;
+  return tmp;
 }
 
 export function readCheckpoint(path: string): number {
@@ -163,7 +151,7 @@ export function replaceFile(
     });
     fs.renameSync(tmp, path);
   } catch (error) {
-    discard(tmp);
+    discardTemporary(tmp);
     throw error;
   }
   if (durable) syncDirectory(dir);

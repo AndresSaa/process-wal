@@ -144,17 +144,23 @@ guessing.
    `close()` is idempotent, and `[Symbol.dispose]` aliases it: releasing a
    resource twice is what correct shutdown code does, but an `append()` that
    succeeded after close would silently drop work. Errors carry stable `code`
-   properties (`ERR_WAL_CLOSED`, `ERR_ENTRY_TOO_LARGE`,
+   properties (`ERR_WAL_CLOSED`, `ERR_WAL_UNUSABLE`, `ERR_ENTRY_TOO_LARGE`,
    `ERR_ENTRY_NOT_SERIALIZABLE`), not exported classes.
 7. The `compactInterval` timer is `unref()`'d and cleared by `close()`.
 8. `appendMany` encodes the whole batch before writing any of it, so a value it
    cannot serialise leaves the log and the sequence untouched. Returning means
    the batch is durable; it is not atomic against a crash mid-write, which
    leaves a healed prefix like any interrupted append.
-9. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
-   what `replay()` returns and `reclaimableBytes` equals what `compact()` would
-   free — both exactly, both maintained through append, checkpoint, compaction
-   and heal-on-open.
+9. A failed write poisons the instance: it cannot tell whether the record
+   reached the file, and either guess corrupts the log — a partial line welded
+   to the next record, or a reissued sequence number, which makes the log
+   unopenable. Every method except `close()` then throws `ERR_WAL_UNUSABLE`.
+   Compaction is different: a failed rename changes nothing, so the writer is
+   restored and the instance stays usable.
+10. `stats()` reads only memory, never the filesystem. `pendingEntries` equals
+    what `replay()` returns and `reclaimableBytes` equals what `compact()` would
+    free — both exactly, both maintained through append, checkpoint, compaction
+    and heal-on-open.
 
 ## Change workflow
 

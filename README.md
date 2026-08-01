@@ -90,7 +90,9 @@ Those are the defaults; every option can be omitted. Invalid values throw `Range
 
 A checkpoint beyond the last append is valid and advances the next sequence number. This prevents a future append from being hidden below the checkpoint.
 
-Every method except `close()` throws an error with `code: "ERR_WAL_CLOSED"` once the WAL is closed. `append` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+Every method except `close()` throws an error with `code: "ERR_WAL_CLOSED"` once the WAL is closed. `append` and `appendMany` can throw `ERR_ENTRY_TOO_LARGE` or `ERR_ENTRY_NOT_SERIALIZABLE`. Stable codes, rather than exported error classes, are the public error contract.
+
+If a write to the log fails partway — a full disk, a failing flush — the instance stops accepting work and every method except `close()` throws `ERR_WAL_UNUSABLE`. It cannot tell whether the record reached the file, and guessing wrong would either weld the next record onto a partial line or reissue a sequence number that is already there, which makes the log refuse to open and takes the whole backlog with it. Close it and open a new one: recovery on open truncates the incomplete record and carries on.
 
 ### Batching
 
