@@ -5,6 +5,8 @@ import { fail } from "./validate.js";
 // newline. That newline is the durability boundary: a record without one was
 // interrupted mid-write, and healTail truncates it before anything else runs.
 
+const NOT_SERIALIZABLE = "entry is not JSON-serializable";
+
 export function decode<T>(line: string): WalEntry<T> {
   const parsed: unknown = JSON.parse(line);
   // `null` parses successfully and is not an object, so reading .seq off it
@@ -12,7 +14,7 @@ export function decode<T>(line: string): WalEntry<T> {
   // damaged record. Arrays and primitives are rejected here for the same
   // reason: the envelope is an object or the record is not a record.
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new SyntaxError("invalid WAL entry");
+    throw new SyntaxError("WAL entry is not an object");
   }
   const entry = parsed as Partial<WalEntry<T>>;
   if (
@@ -20,7 +22,9 @@ export function decode<T>(line: string): WalEntry<T> {
     (entry.seq as number) < 1 ||
     !Object.hasOwn(entry, "value")
   ) {
-    throw new SyntaxError("invalid WAL entry");
+    throw new SyntaxError(
+      "WAL entry needs a positive integer seq and a value property",
+    );
   }
   return entry as WalEntry<T>;
 }
@@ -35,16 +39,19 @@ export function encode<T>(
   try {
     payload = JSON.stringify(value);
   } catch {
-    throw fail("ERR_ENTRY_NOT_SERIALIZABLE", "entry is not JSON-serializable");
+    throw fail("ERR_ENTRY_NOT_SERIALIZABLE", NOT_SERIALIZABLE);
   }
   // JSON.stringify returns undefined rather than throwing for undefined,
   // functions and symbols, so the two cases need separate checks.
   if (payload === undefined) {
-    throw fail("ERR_ENTRY_NOT_SERIALIZABLE", "entry is not JSON-serializable");
+    throw fail("ERR_ENTRY_NOT_SERIALIZABLE", NOT_SERIALIZABLE);
   }
   const line = `{"seq":${seq},"value":${payload}}\n`;
   if (Buffer.byteLength(line) > maxEntryBytes) {
-    throw fail("ERR_ENTRY_TOO_LARGE", `entry exceeds ${maxEntryBytes} bytes`);
+    throw fail(
+      "ERR_ENTRY_TOO_LARGE",
+      `entry exceeds maxEntryBytes (${maxEntryBytes} bytes)`,
+    );
   }
   return Buffer.from(line);
 }
@@ -65,7 +72,7 @@ export function guardRecordSize(
   if (limit !== null && accumulated > limit) {
     throw fail(
       "ERR_ENTRY_TOO_LARGE",
-      `a record on disk exceeds maxReadEntryBytes (${limit})`,
+      `record on disk exceeds maxReadEntryBytes (${limit} bytes)`,
     );
   }
 }

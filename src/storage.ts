@@ -1,9 +1,8 @@
-import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
-import { StringDecoder } from "node:string_decoder";
 import { debuglog } from "node:util";
-import { decode, guardRecordSize } from "./record.js";
-import { join } from "node:path";
+import { decode } from "./record.js";
+import { forEachLine } from "./scan.js";
+import { discardTemporary, temporaryFor } from "./temporary.js";
 import { isMissing } from "./validate.js";
 
 const debug = debuglog("process-wal");
@@ -11,41 +10,10 @@ const debug = debuglog("process-wal");
 // Everything here exists so that a crash leaves the previous state or the next
 // one, never half of either.
 
-// A temporary is created exclusively, under a name nobody can predict. Opening
-// a fixed path with "w" follows whatever is already there, so an entry planted
-// in the directory — a symlink to a file outside it — would be written through.
-// "wx" refuses an existing entry, and the random suffix means there is nothing
-// to plant at.
-function temporaryFor(target: string): string {
-  return `${target}.${randomBytes(8).toString("hex")}.tmp`;
-}
-
-export function discardTemporary(path: string): void {
-  try {
-    fs.rmSync(path, { force: true });
-  } catch {
-    // Cleanup is best-effort: the operation already failed, and sweepTemporaries
-    // collects whatever is left on the next open.
-  }
-}
-
-/**
- * Remove temporaries abandoned by an interrupted checkpoint or compaction.
- * Safe at open because the WAL is single-writer: nothing else owns them, and a
- * compaction temporary can be as large as the log itself.
- */
-export function sweepTemporaries(dir: string): void {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (/^wal\.(jsonl|checkpoint)\.[0-9a-f]{16}\.tmp$/.test(entry)) {
-      discardTemporary(join(dir, entry));
-    }
-  }
+export function writeFully(fd: number, data: Buffer): void {
+  let offset = 0;
+  while (offset < data.length)
+    offset += fs.writeSync(fd, data, offset, data.length - offset);
 }
 
 export function writeSurvivors(
@@ -61,27 +29,16 @@ export function writeSurvivors(
   // Compaction is what bounds file growth, so it runs against the largest logs
   // by definition — the exact case a whole-file read cannot serve. Streaming
   // keeps its memory at one entry, already capped by maxEntryBytes on append.
-  const chunk = Buffer.allocUnsafe(64 * 1024);
-  const decoder = new StringDecoder("utf8");
-  let pending = "";
   const keep = (line: string): void => {
-    if (!line || decode(line).seq <= keepAbove) return;
-    const data = Buffer.from(`${line}\n`);
-    let offset = 0;
-    while (offset < data.length)
-      offset += fs.writeSync(output, data, offset, data.length - offset);
+    if (decode(line).seq <= keepAbove) return;
+    writeFully(
+      output,
+      Buffer.from(`${line}
+`),
+    );
   };
   try {
-    let bytesRead: number;
-    do {
-      bytesRead = fs.readSync(input, chunk);
-      pending += decoder.write(chunk.subarray(0, bytesRead));
-      guardRecordSize(pending.length, maxReadEntryBytes);
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) keep(line);
-    } while (bytesRead > 0);
-    keep(pending + decoder.end());
+    forEachLine(input, maxReadEntryBytes, keep);
     if (durable) fs.fsyncSync(output);
   } finally {
     // The reader must let go before the caller can rename over the live file.

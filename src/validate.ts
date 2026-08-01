@@ -16,6 +16,17 @@ export function walClosed(): CodedError {
   return fail("ERR_WAL_CLOSED", "WAL is closed");
 }
 
+/**
+ * Sequence numbers must stay safe integers: past that, JSON round-trips and
+ * comparisons stop being exact, and a log that cannot be ordered cannot be
+ * replayed. Checked before issuing rather than after.
+ */
+export function assertSequenceSpace(lastSeq: number, count: number): void {
+  if (count > Number.MAX_SAFE_INTEGER - lastSeq) {
+    throw new RangeError("WAL sequence number space is exhausted");
+  }
+}
+
 export function checkSeq(seq: number, label: string): void {
   if (!Number.isSafeInteger(seq) || seq < 0) {
     throw new RangeError(`${label} must be a non-negative safe integer`);
