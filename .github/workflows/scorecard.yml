@@ -17,6 +17,7 @@ jobs:
   analysis:
     name: Analyse
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       # Uploads the SARIF result to code scanning.
       security-events: write

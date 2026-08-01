@@ -42,7 +42,8 @@
     "bench": "vitest bench --run --passWithNoTests",
     "coverage": "npm run build && vitest run --coverage",
     "lint": "tsc --noEmit && eslint . && prettier . --check",
-    "lint:package": "publint --strict && attw --pack .",
+    "lint:package": "publint --strict && attw --pack . && npm run smoke:package",
+    "smoke:package": "node scripts/smoke-packed.mjs",
     "docs:diagram": "node scripts/render-readme-flow.mjs",
     "check:diagrams": "node scripts/render-readme-flow.mjs --check"
   },
