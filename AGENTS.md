@@ -117,6 +117,20 @@ guessing.
   second responsibility — extract that rather than trimming comments, which are
   the spec. Raised from 150 once `stats()` and the disposal protocol landed;
   raise it again only with the same kind of argument, never to make room.
+
+  **`wal.ts` is the one exception, and a watched one.** It orchestrates: its
+  size tracks the number of public methods, not accumulated responsibility. Its
+  state — `fd`, `closed`, `unusable`, `activeCursors`, `compactPending`,
+  `lastSeq`, `checkpointSeq` — is the instance lifecycle, and anything extracted
+  from it would have to read and write most of that, which is the definition of
+  not being separable. So the budget does not fail it at ~200.
+
+  That is not permission to let it grow. Every change touching it reports its
+  size and says what came out to make room, and an increase needs the same
+  justification any other file would need. If something in it can move without
+  dragging that state along, it moves. The exception exists because the metric
+  measures the wrong thing here, not because this file is allowed more.
+
 - **`types.ts` is the public contract and nothing else.** Every type in it is
   re-exported by `index.ts`, and every type `index.ts` exports is in it. Types
   describing how two modules talk to each other live with the module that owns
