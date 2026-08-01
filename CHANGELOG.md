@@ -7,6 +7,22 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- The README is a landing page again, and the API reference has its own page at
+  `docs/api.md`. It had grown to 17 KiB — the largest in its peer group, for the
+  smallest library in it — by gaining a how-to section for every feature that
+  landed, each duplicating what `docs/examples.md` already said better.
+
+  The shape follows what mature libraries with a `docs/` directory do: pino and
+  better-sqlite3 both ship 4–5 KiB READMEs and keep their reference in `docs/`,
+  while the ones carrying 9–16 KiB READMEs have no `docs/` at all and no choice.
+  This package had both, and was paying for both.
+
+- `docs/` now ships inside the published package, as pino's does. The
+  documentation is readable from `node_modules` and offline, not only from
+  GitHub.
+
 ### Changed
 
 - Error messages are more specific, while every `code` stays exactly as it was.
