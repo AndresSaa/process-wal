@@ -62,7 +62,7 @@ Published with [provenance](https://docs.npmjs.com/generating-provenance-stateme
 
 ![Sequence diagram: a producer sends work to a service, which appends it to process-wal and only acknowledges the producer once the append returns a sequence number; the side effect runs downstream, and only after it succeeds does the service checkpoint that sequence. Anything not checkpointed replays after a restart.](https://raw.githubusercontent.com/AndresSaa/process-wal/main/.github/assets/readme-flow.webp)
 
-`append`, `checkpoint`, `compact`, and `close` are synchronous by design. A successful `append` means the complete record reached the selected durability boundary before its sequence number was returned.
+`append`, `appendMany`, `checkpoint`, `compact`, and `close` are synchronous by design. A successful `append` means the complete record reached the selected durability boundary before its sequence number was returned.
 
 ## API
 
@@ -71,7 +71,7 @@ const wal = createWal<T>({
   dir: "./data", // holds wal.jsonl and wal.checkpoint
   fsync: false, // page cache, or storage — see Durability model
   compactInterval: null, // ms; the timer is unref'ed. null disables it
-  maxEntryBytes: 1_048_576, // per record, before ERR_ENTRY_TOO_LARGE
+  maxEntryBytes: 1_048_576, // per record on write, before ERR_ENTRY_TOO_LARGE
 });
 ```
 
@@ -233,7 +233,7 @@ Fair question, and often the right answer. `node:sqlite` has shipped in the runt
 
 The difference is not the storage engine, it is the amount of design left over. SQLite gives you a database; a write-ahead log with replay-from-checkpoint semantics is something you then design on top of it: a table, monotonic sequencing, a durable checkpoint marker, a deletion-and-vacuum policy, and a decision about what to do when the process died mid-write. That is a real afternoon of work and a set of subtle choices — most of the bugs in this space are in the recovery path, not the happy path.
 
-Reach for `node:sqlite` or `better-sqlite3` when you need queries, indexes, multiple tables, or transactions across your own data. Reach for `process-wal` when the only thing you want is "do not lose work I already said yes to," and you would rather adopt six methods than own a schema.
+Reach for `node:sqlite` or `better-sqlite3` when you need queries, indexes, multiple tables, or transactions across your own data. Reach for `process-wal` when the only thing you want is "do not lose work I already said yes to," and you would rather adopt eight methods than own a schema.
 
 Further alternatives, with the case for each, are in [docs/alternatives.md](https://github.com/AndresSaa/process-wal/blob/main/docs/alternatives.md).
 
