@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-08-01
+
+### Security
+
+- Checkpointing and compaction wrote to a predictable temporary name
+  (`wal.checkpoint.tmp`, `wal.jsonl.tmp`) opened in a mode that follows an
+  existing directory entry. An actor able to create entries inside the WAL
+  directory could plant a symlink there and have the write land on a file
+  **outside** it, with the privileges of the running process — which
+  `SECURITY.md` already listed as in scope.
+
+  Temporaries are now created exclusively, under an unpredictable name, so there
+  is nothing to plant at and an existing entry is refused rather than reused.
+  Leftovers from an interrupted write are swept when the WAL is opened. Affects
+  1.3.0 and earlier; no API change.
+
+  `SECURITY.md` also states the limit of this guarantee honestly: Node offers no
+  portable way to open an existing file without following a symlink, so
+  replacing `wal.jsonl` itself stays out of scope and the WAL directory must be
+  private to the account running the process.
+
+### Fixed
+
+- `package-lock.json` had drifted to `1.1.0` while the package was at `1.3.0`.
+
 ## [1.3.0] - 2026-07-31
 
 ### Added

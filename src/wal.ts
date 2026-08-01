@@ -10,6 +10,7 @@ import {
   healTail,
   readCheckpoint,
   replaceFile,
+  sweepTemporaries,
 } from "./storage.js";
 import type {
   CursorOptions,
@@ -31,6 +32,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   const walPath = join(dir, "wal.jsonl");
   const checkpointPath = join(dir, "wal.checkpoint");
   // Recovery must finish before the append descriptor is opened.
+  sweepTemporaries(dir);
   healTail(walPath, fsync);
 
   let checkpointSeq = readCheckpoint(checkpointPath);

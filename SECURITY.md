@@ -33,7 +33,9 @@ The library's job is to write, read back, and replace files inside a directory
 you give it. Things that would be genuine vulnerabilities:
 
 - Reading or writing outside the configured `dir`, including through symlinks
-  placed in it or filenames that escape it.
+  placed in it or filenames that escape it. Temporary files are created
+  exclusively under unpredictable names, so an entry planted in the directory
+  cannot be written through.
 - A crafted `wal.jsonl` or `wal.checkpoint` that crashes the process, hangs it,
   or drives unbounded memory growth on open, `replay()`, `cursor()`, or
   `compact()`.
@@ -59,13 +61,19 @@ as security reports:
 - A complete but unparseable record refusing to open the log. That is
   deliberate: skipping it would silently drop work the library already
   acknowledged.
+- Replacing `wal.jsonl` or `wal.checkpoint` themselves with a symlink. Node
+  offers no portable way to open an existing file without following a link —
+  `O_NOFOLLOW` does not exist on Windows — so **the WAL directory must be
+  private to the account running the process.** Do not place it somewhere other
+  users can create entries, such as a shared temporary directory.
 - Anything requiring an attacker who can already write freely to your WAL
   directory _and_ whose goal is only to corrupt your own data. If they are
   inside that directory, the log is the least of it. Escaping the directory, or
   reaching the host process, is still in scope.
 - Vulnerabilities in development dependencies that cannot reach a consumer of
-  the published package. The package ships with **zero runtime dependencies**;
-  `dist/` and `CHANGELOG.md` are the only things in the tarball.
+  the published package. The package ships with **zero runtime dependencies**,
+  and the tarball carries only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`
+  and `package.json` — no scripts, no configuration, no tests.
 
 ## Supply chain
 
