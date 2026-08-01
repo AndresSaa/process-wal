@@ -197,9 +197,10 @@ change:
    `npm run lint:package`. Re-run `npm run bench` whenever the append path
    changes, and copy only measured results into the README.
 6. **Update user-facing documentation in the same change.**
-   - Update `README.md` when installation, API, options, guarantees,
-     limitations, operational behavior, examples, positioning, or benchmark
-     numbers change.
+   - `README.md` is a landing page: pitch, install, the durability trade-off,
+     positioning, and links out. The API reference lives in `docs/api.md` —
+     update that when a method, option or error code changes, and the README
+     only when the positioning does.
    - Update `CHANGELOG.md` for user-visible additions, changes, fixes, removals,
      deprecations, or security work. Write outcomes for library consumers, not
      implementation notes or commit summaries.
