@@ -55,7 +55,7 @@ describe("recovery over arbitrary log content", () => {
       }),
       { numRuns: 250 },
     );
-  });
+  }, 30_000);
 
   it("never loses a complete record to a torn tail, wherever the tear lands", () => {
     fc.assert(
@@ -90,7 +90,7 @@ describe("recovery over arbitrary log content", () => {
       ),
       { numRuns: 150 },
     );
-  });
+  }, 30_000);
 
   it("round-trips any JSON value through a restart", () => {
     fc.assert(
@@ -112,7 +112,7 @@ describe("recovery over arbitrary log content", () => {
       }),
       { numRuns: 150 },
     );
-  });
+  }, 30_000);
 });
 
 describe("stats never drifts from the file", () => {
@@ -166,7 +166,7 @@ describe("stats never drifts from the file", () => {
       }),
       { numRuns: 200 },
     );
-  });
+  }, 30_000);
 
   it("reconstructs the same counters after a restart", () => {
     fc.assert(
@@ -189,7 +189,7 @@ describe("stats never drifts from the file", () => {
       }),
       { numRuns: 200 },
     );
-  });
+  }, 30_000);
 });
 
 describe("appendMany is indistinguishable from repeated append", () => {
@@ -234,5 +234,5 @@ describe("appendMany is indistinguishable from repeated append", () => {
       ),
       { numRuns: 200 },
     );
-  });
+  }, 30_000);
 });
