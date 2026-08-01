@@ -7,6 +7,19 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- The publish job pins npm to an exact version instead of installing
+  `npm@latest`. That job holds the OIDC credential that authorises publishing,
+  and `latest` meant reaching for whatever had been released in the meantime.
+- A release tag is now rejected unless its commit is an ancestor of `main`.
+  Matching the version in `package.json` was never enough on its own: a tag can
+  be pushed at any commit, including one that never went through review.
+- Release notes are extracted and checked **before** `npm publish` rather than
+  after. A missing changelog section used to fail once the version was already
+  immutable on the registry — a release half done and impossible to undo.
+- The release checkout no longer persists a credential it never uses.
+
 ### Documentation
 
 - Corrected counts and lists that had drifted behind the API: the package is
