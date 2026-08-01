@@ -76,17 +76,20 @@ jobs:
           fi
 
       - name: Extract the release notes
-        # Done before publishing, not after. A missing changelog section used to
-        # fail once the version was already immutable on npm — a release half
-        # done and impossible to undo.
+        # Done before publishing, not after: a missing changelog section used
+        # to fail once the version was already immutable on npm.
+        #
+        # Written outside the checkout. Leaving it in the working tree put an
+        # unformatted file where `prettier . --check` would find it, so the
+        # gate below failed the release over an artefact the release made.
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v heading="## [$version]" '
             index($0, heading) == 1 { capturing = 1; next }
             capturing && /^## \[/ { exit }
             capturing { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
             echo "no CHANGELOG.md section found for $version" >&2
             exit 1
           fi
@@ -111,5 +114,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes-file release-notes.md \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             --verify-tag
