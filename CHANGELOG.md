@@ -22,6 +22,10 @@ and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- The documented command list matches the scripts that exist. `check:diagrams`,
+  `docs:diagram` and `smoke:package` were missing from it, and `lint:package` is
+  now described as what it became: validation that also loads the packed
+  tarball rather than only inspecting it.
 - Corrected counts and lists that had drifted behind the API: the package is
   described as eight methods rather than six, `appendMany` is named in the
   synchronous-methods sentence, and the error tables assign the serialisation

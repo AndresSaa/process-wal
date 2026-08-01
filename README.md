@@ -275,7 +275,7 @@ npm run bench
 npm run lint:package
 ```
 
-CI runs lint, coverage, package validation, and the durability suite on Node 22 and 24 across Linux, macOS, and Windows. A release is a merged version bump followed by a `vX.Y.Z` tag, which publishes to npm over OIDC.
+CI runs lint, coverage, package validation, and the durability suite on Node 22 and 24 across Linux, macOS, and Windows, plus one leg on the current Node release. Package validation installs the packed tarball and imports it, rather than only inspecting it. A release is a merged version bump followed by a `vX.Y.Z` tag, which publishes to npm over OIDC.
 
 `process-wal` is stable at `1.x`, so the API and the durability contract above are a commitment: breaking either is a major version, not a patch.
 

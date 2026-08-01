@@ -29,8 +29,15 @@ npm run test:watch   # vitest
 npm run bench        # vitest bench — fsync cost, p75/p99
 npm run coverage     # vitest run --coverage — local gate, no hosted service
 npm run lint         # eslint + prettier --check
-npm run lint:package # validate the built package with publint + attw
+npm run lint:package # publint + attw, then load the packed tarball for real
+npm run check:diagrams # the readme diagram still matches its .mmd source
+npm run docs:diagram   # regenerate it after editing the .mmd
+npm run smoke:package  # install the packed tarball and import it (in lint:package)
 ```
+
+`lint:package` ends by installing the tarball into a throwaway package and
+importing it by name. publint and attw read the package; only that step proves
+it loads.
 
 There is no `npm run release`. A release is a merged version-bump PR followed by
 a `vX.Y.Z` tag push; `.github/workflows/release.yml` does the rest.
@@ -264,7 +271,8 @@ applies to every agent and tool working in this repository, with no exceptions.
 - Squash-merge only; `main` history stays linear. Never force-push `main`; never
   skip hooks (`--no-verify`) or CI to get a merge through.
 - Merge requires green CI — lint + test + build across the **full Node × OS
-  matrix**. Windows is a first-class target, not a footnote: the maintainer
+  matrix**: both active LTS lines on Linux, macOS and Windows, plus one leg on
+  Current so that `engines: >=22` is a claim something checks. Windows is a first-class target, not a footnote: the maintainer
   develops on Windows, so no POSIX-only assumptions in tests (paths, signals,
   rename semantics).
 
