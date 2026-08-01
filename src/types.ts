@@ -16,6 +16,13 @@ export interface WalOptions {
   compactInterval?: number | null;
   /** Maximum UTF-8 bytes for one complete JSONL record. Default: 1 MiB. */
   maxEntryBytes?: number;
+  /**
+   * Reject a record already on disk that exceeds this many bytes, instead of
+   * reading it. Off by default: lowering it below what a log was written with
+   * makes that log unreadable, so it is opt-in for directories you do not
+   * fully trust rather than a mirror of maxEntryBytes.
+   */
+  maxReadEntryBytes?: number | null;
 }
 
 /** A persisted value and its instance-monotonic sequence number. */

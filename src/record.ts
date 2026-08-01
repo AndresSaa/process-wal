@@ -48,3 +48,24 @@ export function encode<T>(
   }
   return Buffer.from(line);
 }
+
+/**
+ * Reject an oversized record while it is still being accumulated, rather than
+ * after the whole of it is in memory — which is the only version of this check
+ * that bounds anything.
+ *
+ * `accumulated` is a UTF-16 length, and every UTF-16 unit encodes to at least
+ * one UTF-8 byte, so exceeding the limit in units means exceeding it in bytes.
+ * The check is therefore sound: it never rejects a record that fits.
+ */
+export function guardRecordSize(
+  accumulated: number,
+  limit: number | null,
+): void {
+  if (limit !== null && accumulated > limit) {
+    throw fail(
+      "ERR_ENTRY_TOO_LARGE",
+      `a record on disk exceeds maxReadEntryBytes (${limit})`,
+    );
+  }
+}

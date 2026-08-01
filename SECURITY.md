@@ -61,9 +61,10 @@ as security reports:
 - A complete but unparseable record refusing to open the log. That is
   deliberate: skipping it would silently drop work the library already
   acknowledged.
-- Memory proportional to a log you wrote yourself. `maxEntryBytes` bounds what
-  `append` accepts, not what a later read returns, and `replay()` materialises
-  the log by design. A crafted record that drives memory growth _out of
+- Memory proportional to a log you wrote yourself. `replay()` materialises the
+  log by design, and reads are unbounded unless you set `maxReadEntryBytes`,
+  which exists for exactly this and is off by default so that lowering a limit
+  cannot make an existing log unreadable. A crafted record that drives memory growth _out of
   proportion to its own size_ is in scope; one that is simply large is the
   documented cost of the record you stored.
 - Replacing `wal.jsonl` or `wal.checkpoint` themselves with a symlink. Node

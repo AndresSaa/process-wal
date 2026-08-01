@@ -60,7 +60,8 @@ const wal = createWal<Job>({
   dir: "./data", // default "./data"
   fsync: false, // default false
   compactInterval: null, // default null (no timer)
-  maxEntryBytes: 1024 * 1024, // default 1 MiB
+  maxEntryBytes: 1024 * 1024, // default 1 MiB, on write
+  maxReadEntryBytes: null, // default null — no limit on what is read back
 });
 ```
 

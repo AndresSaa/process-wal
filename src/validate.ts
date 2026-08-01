@@ -27,6 +27,7 @@ export interface ResolvedOptions {
   fsync: boolean;
   compactInterval: number | null;
   maxEntryBytes: number;
+  maxReadEntryBytes: number | null;
 }
 
 /**
@@ -39,6 +40,7 @@ export function resolveOptions(options: WalOptions): ResolvedOptions {
     fsync = false,
     compactInterval = null,
     maxEntryBytes = DEFAULT_MAX_ENTRY_BYTES,
+    maxReadEntryBytes = null,
   } = options;
   if (typeof dir !== "string" || !dir) {
     throw new RangeError("dir must be a non-empty string");
@@ -58,5 +60,19 @@ export function resolveOptions(options: WalOptions): ResolvedOptions {
   ) {
     throw new RangeError("compactInterval must be a positive integer or null");
   }
-  return { dir, fsync, compactInterval, maxEntryBytes };
+  if (
+    maxReadEntryBytes !== null &&
+    (!Number.isSafeInteger(maxReadEntryBytes) || maxReadEntryBytes < 1)
+  ) {
+    throw new RangeError(
+      "maxReadEntryBytes must be a positive safe integer or null",
+    );
+  }
+  return {
+    dir,
+    fsync,
+    compactInterval,
+    maxEntryBytes,
+    maxReadEntryBytes,
+  };
 }

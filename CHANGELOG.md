@@ -5,7 +5,31 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-08-01
+
+### Added
+
+- `maxReadEntryBytes` rejects a record already on disk that exceeds it, instead
+  of reading it. Off by default, and deliberately not a mirror of
+  `maxEntryBytes`: enforcing the write limit on reads would mean lowering it
+  made an existing log unreadable, turning a configuration change into data
+  loss. Set it where the WAL directory is somewhere you would rather bound what
+  you are willing to read back. An oversized record then fails `createWal` with
+  `ERR_ENTRY_TOO_LARGE` — the same code `append` already used for the same
+  reason.
+
+  The bound is applied while a record is being read rather than after, which is
+  the only version of the check that bounds anything, and at open, which every
+  other read is downstream of.
+
+### Fixed
+
+- The checkpoint file is no longer read whole. It holds a single integer, so a
+  `wal.checkpoint` of any size was pulled into memory before being parsed and
+  then discarded if it did not look like a number. A 200 MiB one cost 693 ms and
+  200 MiB of heap to reach the same answer it now reaches in 2 ms and none:
+  anything implausibly large is treated as the corruption it is and falls back
+  to zero, exactly like an unparseable one.
 
 ### Security
 

@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import { createInterface } from "node:readline";
-import { decode } from "./record.js";
+import { decode, guardRecordSize } from "./record.js";
 import type { WalCursor, WalEntry } from "./types.js";
 
 interface FrozenCursorOptions {
   walPath: string;
   checkpointSeq: number;
   fromSeq: number;
+  maxReadEntryBytes: number | null;
   onRelease(): void;
 }
 
@@ -14,6 +15,7 @@ export function createFrozenCursor<T>({
   walPath,
   checkpointSeq,
   fromSeq,
+  maxReadEntryBytes,
   onRelease,
 }: FrozenCursorOptions): WalCursor<T> {
   const fd = fs.openSync(walPath, "r");
@@ -46,6 +48,11 @@ export function createFrozenCursor<T>({
       const lines = createInterface({ input, crlfDelay: Infinity });
       for await (const line of lines) {
         if (!line) continue;
+        // readline has already buffered the whole line, so this rejects an
+        // oversized record rather than preventing it being held. The bound
+        // that matters is applied at open, which every cursor is downstream
+        // of: a record too large to read never gets past createWal.
+        guardRecordSize(line.length, maxReadEntryBytes);
         const entry = decode<T>(line);
         if (entry.seq > checkpointSeq && entry.seq > fromSeq) yield entry;
       }

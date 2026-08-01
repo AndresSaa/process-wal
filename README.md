@@ -72,10 +72,13 @@ const wal = createWal<T>({
   fsync: false, // page cache, or storage — see Durability model
   compactInterval: null, // ms; the timer is unref'ed. null disables it
   maxEntryBytes: 1_048_576, // per record on write, before ERR_ENTRY_TOO_LARGE
+  maxReadEntryBytes: null, // null = read back whatever is on disk
 });
 ```
 
 Those are the defaults; every option can be omitted. Invalid values throw `RangeError` at construction.
+
+`maxReadEntryBytes` is off by default on purpose. Enforcing `maxEntryBytes` on reads would mean lowering it made an existing log unreadable — a configuration change turned into data loss. Set it when the WAL directory is somewhere you would rather bound what you are willing to read back; a record on disk larger than it makes `createWal` throw `ERR_ENTRY_TOO_LARGE` instead of loading it.
 
 | Method                 | Contract                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------- |
