@@ -469,13 +469,14 @@ What it does not do is survive a restart — `replay()` is always empty.
 Every error carries a stable `code`. The codes are the contract; the classes are
 not exported, so match on `code` rather than `instanceof`.
 
-| `code`                       | Thrown by                     | Meaning                                      |
-| ---------------------------- | ----------------------------- | -------------------------------------------- |
-| `ERR_WAL_CLOSED`             | every method, after `close()` | The instance is done. Make a new one.        |
-| `ERR_ENTRY_NOT_SERIALIZABLE` | `append`                      | `JSON.stringify` cannot represent the value. |
-| `ERR_ENTRY_TOO_LARGE`        | `append`                      | The record exceeds `maxEntryBytes`.          |
-| —                            | `createWal`                   | `RangeError` for invalid options.            |
-| —                            | `createWal`                   | `SyntaxError` for a corrupt log. See below.  |
+| `code`                       | Thrown by                     | Meaning                                                                     |
+| ---------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `ERR_WAL_CLOSED`             | every method, after `close()` | The instance is done. Make a new one.                                       |
+| `ERR_WAL_UNUSABLE`           | every method except `close()` | A write failed partway; this instance can no longer tell what reached disk. |
+| `ERR_ENTRY_NOT_SERIALIZABLE` | `append`                      | `JSON.stringify` cannot represent the value.                                |
+| `ERR_ENTRY_TOO_LARGE`        | `append`                      | The record exceeds `maxEntryBytes`.                                         |
+| —                            | `createWal`                   | `RangeError` for invalid options.                                           |
+| —                            | `createWal`                   | `SyntaxError` for a corrupt log. See below.                                 |
 
 ```ts
 function isWalError(error: unknown, code: string): boolean {
@@ -497,6 +498,28 @@ try {
   }
 }
 ```
+
+### After a failed write
+
+A write that fails partway leaves the record either partly on disk or written
+but unflushed, and the instance cannot tell which. Rather than guess, it stops:
+every method except `close()` throws `ERR_WAL_UNUSABLE` from then on.
+
+```ts
+try {
+  wal.append(value);
+} catch (error) {
+  // The original failure (ENOSPC, EIO…) is what you get first. Every later
+  // call reports ERR_WAL_UNUSABLE.
+  wal.close();
+  wal = createWal(options); // heal-on-open truncates the incomplete record
+}
+```
+
+Continuing on the same instance would be worse than failing. Welding the next
+record onto a partial line, or reissuing a sequence number already in the file,
+produces a log that refuses to open at all — losing the entire backlog instead
+of one entry.
 
 `createWal` throwing `SyntaxError` means the log holds a record that is
 complete — newline-terminated — but unparseable. That is deliberate rather than

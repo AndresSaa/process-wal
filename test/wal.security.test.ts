@@ -1,7 +1,9 @@
 import {
+  chmodSync,
   existsSync,
   readFileSync,
   readdirSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -132,5 +134,60 @@ describe("temporaries left by an interrupted write", () => {
     const leftovers = readdirSync(dir).filter((name) => name.endsWith(".tmp"));
     expect(leftovers).toEqual([]);
     wal.close();
+  });
+});
+
+describe("an interrupted mutation leaves a usable instance", () => {
+  /** POSIX only, and not as root: a non-writable directory makes rename fail. */
+  function freeze(dir: string): boolean {
+    try {
+      chmodSync(dir, 0o555);
+      writeFileSync(join(dir, ".probe"), "x");
+      // The write succeeded, so permissions are not enforced here.
+      chmodSync(dir, 0o755);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  it("keeps its writer and its accounting when compaction cannot rename", () => {
+    const dir = tempDir();
+    const wal = createWal<string>({ dir });
+    wal.append("one");
+    wal.append("two");
+    wal.checkpoint(1);
+    const before = wal.stats();
+
+    if (!freeze(dir)) {
+      wal.close();
+      return;
+    }
+
+    expect(() => wal.compact()).toThrow();
+    chmodSync(dir, 0o755);
+
+    // The writer was closed before the rename was attempted. Losing it would
+    // leave every later append failing on a closed descriptor.
+    expect(wal.append("three")).toBe(3);
+    // Nothing was reclaimed, so the accounting must not pretend otherwise.
+    expect(wal.stats().reclaimableBytes).toBe(before.reclaimableBytes);
+    expect(wal.stats().bytes).toBe(statSync(join(dir, "wal.jsonl")).size);
+    expect(wal.replay().map((entry) => entry.value)).toEqual(["two", "three"]);
+    wal.close();
+  });
+
+  it("refuses to reuse a sequence number, because a repeat is unrecoverable", () => {
+    // This is the state a failed flush leaves behind: the record reached the
+    // file but the sequence was never published, so a naive retry writes it
+    // again. The result is not a lost entry — it is a log that will not open.
+    const dir = tempDir();
+    writeFileSync(
+      join(dir, "wal.jsonl"),
+      `{"seq":1,"value":"a"}\n{"seq":1,"value":"retry"}\n`,
+    );
+
+    expect(() => createWal({ dir })).toThrow(SyntaxError);
+    expect(() => createWal({ dir })).toThrow(/sequence numbers must increase/);
   });
 });

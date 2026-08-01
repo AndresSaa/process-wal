@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-01
+
+### Added
+
+- `ERR_WAL_UNUSABLE`. If a write to the log fails partway — a full disk, a
+  failing flush — the instance can no longer tell whether the record reached the
+  file, so it stops accepting work and every method except `close()` throws this
+  code.
+
+  Guessing was the alternative, and both guesses corrupt. Continuing would weld
+  the next record onto a partial line; retrying would reissue a sequence number
+  that is already in the file. A log with a repeated sequence **refuses to open
+  at all**, so a single failed flush cost the entire backlog rather than one
+  entry. Close the instance and open a new one — recovery on open truncates the
+  incomplete record and carries on.
+
+### Fixed
+
+- A failed compaction no longer risks the writer. The log is closed before the
+  rename because Windows will not replace an open file, and the reopened
+  descriptor was only handed back on success; a failure left the instance
+  holding a closed one. It is now restored on every path out.
+- Compaction accounting follows the rename rather than the directory flush that
+  comes after it. Those bytes are gone once the rename succeeds, so a failing
+  flush no longer leaves `stats()` reporting space that is not there.
+
 ## [1.3.2] - 2026-08-01
 
 ### Fixed

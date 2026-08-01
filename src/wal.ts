@@ -6,11 +6,13 @@ import { createFrozenCursor } from "./cursor.js";
 import { encode } from "./record.js";
 import { readEntries, scanAccounting } from "./scan.js";
 import {
-  compactLog,
+  discardTemporary,
   healTail,
   readCheckpoint,
   replaceFile,
   sweepTemporaries,
+  syncDirectory,
+  writeCompacted,
 } from "./storage.js";
 import type {
   CursorOptions,
@@ -20,7 +22,7 @@ import type {
   WalOptions,
   WalStats,
 } from "./types.js";
-import { checkSeq, resolveOptions, walClosed } from "./validate.js";
+import { checkSeq, fail, resolveOptions, walClosed } from "./validate.js";
 
 const debug = debuglog("process-wal");
 
@@ -43,23 +45,38 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   let lastSeq = Math.max(checkpointSeq, opened.lastSeq);
   let fd = fs.openSync(walPath, "a");
   let closed = false;
+  let unusable: Error | undefined;
   let activeCursors = 0;
   let compactPending = false;
   let timer: NodeJS.Timeout | undefined;
 
-  const assertOpen = (): void => {
+  const assertUsable = (): void => {
     if (closed) throw walClosed();
+    if (unusable) {
+      throw fail("ERR_WAL_UNUSABLE", `WAL is unusable: ${unusable.message}`);
+    }
   };
 
   const writeAll = (data: Buffer): void => {
-    let offset = 0;
-    while (offset < data.length)
-      offset += fs.writeSync(fd, data, offset, data.length - offset);
-    if (fsync) fs.fsyncSync(fd);
+    try {
+      let offset = 0;
+      while (offset < data.length)
+        offset += fs.writeSync(fd, data, offset, data.length - offset);
+      if (fsync) fs.fsyncSync(fd);
+    } catch (error) {
+      // The record is now either partly on disk or written but unflushed, and
+      // this instance cannot tell which. Continuing would weld the next record
+      // onto a partial line, or reissue a sequence number that is already in
+      // the file — and a log with a repeated sequence refuses to open at all,
+      // losing the whole backlog rather than one entry. Refuse everything
+      // instead, and let a fresh instance heal the tail on open.
+      unusable = error as Error;
+      throw error;
+    }
   };
 
   const append = (value: T): number => {
-    assertOpen();
+    assertUsable();
     if (lastSeq === Number.MAX_SAFE_INTEGER) {
       throw new RangeError("WAL sequence number space is exhausted");
     }
@@ -73,7 +90,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const appendMany = (values: T[]): number[] => {
-    assertOpen();
+    assertUsable();
     if (values.length === 0) return [];
     if (values.length > Number.MAX_SAFE_INTEGER - lastSeq) {
       throw new RangeError("WAL sequence number space is exhausted");
@@ -94,7 +111,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const checkpoint = (nextCheckpoint: number): void => {
-    assertOpen();
+    assertUsable();
     checkSeq(nextCheckpoint, "checkpoint");
     if (nextCheckpoint <= checkpointSeq) return;
     replaceFile(checkpointPath, String(nextCheckpoint), fsync, dir);
@@ -105,16 +122,29 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const replay = (): Array<WalEntry<T>> => {
-    assertOpen();
+    assertUsable();
     return readEntries<T>(walPath).filter((entry) => entry.seq > checkpointSeq);
   };
 
   const compactNow = (): void => {
-    fd = compactLog(walPath, fd, checkpointSeq, fsync, dir);
-    // Compaction keeps exactly the records above the checkpoint, so what the
-    // file lost is precisely what was reclaimable.
+    const tmp = writeCompacted(walPath, checkpointSeq, fsync);
+    // Windows refuses to rename over an open file, so the writer closes first.
+    // Restoring it is therefore this function's job on every path out: an
+    // instance left holding a closed descriptor fails every later append.
+    fs.closeSync(fd);
+    try {
+      fs.renameSync(tmp, walPath);
+    } catch (error) {
+      discardTemporary(tmp);
+      fd = fs.openSync(walPath, "a");
+      throw error;
+    }
+    fd = fs.openSync(walPath, "a");
+    // The log is already replaced, so the accounting follows the rename rather
+    // than the flush below: those bytes are gone whether or not it succeeds.
     measured.compacted();
     compactPending = false;
+    if (fsync) syncDirectory(dir);
   };
 
   const releaseCursor = (): void => {
@@ -123,7 +153,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const cursor = ({ fromSeq = 0 }: CursorOptions = {}): WalCursor<T> => {
-    assertOpen();
+    assertUsable();
     checkSeq(fromSeq, "fromSeq");
     // The checkpoint and byte length form an immutable view even as appends
     // continue. The cursor owns its descriptor until iteration finishes.
@@ -138,7 +168,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const compact = (): void => {
-    assertOpen();
+    assertUsable();
     if (activeCursors > 0) {
       compactPending = true;
       debug("compaction deferred while %d cursor(s) are open", activeCursors);
@@ -148,7 +178,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const stats = (): WalStats => {
-    assertOpen();
+    assertUsable();
     return {
       lastSeq,
       checkpoint: checkpointSeq,
