@@ -68,7 +68,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     // Publish the seq only after the full record reaches the selected
     // durability boundary (page cache, or storage when fsync is enabled).
     lastSeq += 1;
-    measured.record(data.length);
+    measured.record(lastSeq, data.length);
     return lastSeq;
   };
 
@@ -88,7 +88,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     writeAll(Buffer.concat(records));
     return records.map((record) => {
       lastSeq += 1;
-      measured.record(record.length);
+      measured.record(lastSeq, record.length);
       return lastSeq;
     });
   };
@@ -99,7 +99,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
     if (nextCheckpoint <= checkpointSeq) return;
     replaceFile(checkpointPath, String(nextCheckpoint), fsync, dir);
     // Memory advances only after the atomic replacement succeeds.
-    measured.advance(nextCheckpoint - checkpointSeq);
+    measured.advance(nextCheckpoint);
     checkpointSeq = nextCheckpoint;
     lastSeq = Math.max(lastSeq, nextCheckpoint);
   };

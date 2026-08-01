@@ -32,6 +32,14 @@ batch is encoded in full before anything is written, so the encoded bytes are
 held at once. That is what buys the single flush, and it is bounded by the
 caller's batch size rather than by the log.
 
+The accounting behind `stats()` keeps a sequence number and a byte length per
+pending record — two numbers, in parallel arrays rather than an object each.
+Checkpointing advances a head index over them instead of removing a prefix,
+because removing one per checkpoint is quadratic in the backlog: at 200,000
+pending records that array work alone is measured in tens of seconds, where the
+index is measured in milliseconds. Below roughly 200,000 the checkpoint's own
+write and rename dominate and the difference is invisible.
+
 `stats()` is the only operation that touches no descriptor at all. Its counters
 are set by the open-time scan and maintained by append, checkpoint and
 compaction, which is what makes it safe to call on a metrics scrape. The one
