@@ -57,9 +57,11 @@ The source is split by responsibility:
 
 - `src/wal.ts` — lifecycle, sequencing, and public orchestration.
 - `src/record.ts` — the on-disk record format: encode and decode one entry.
-- `src/scan.ts` — bounded-memory reads of the log, including the open-time pass that validates and measures it in one go.
+- `src/scan.ts` — bounded-memory reads of the log, including `forEachLine`, which the startup scan and compaction share, and the open-time pass that validates and measures the log in one go.
 - `src/storage.ts` — durability primitives: heal-on-open, atomic replacement, compaction, directory flush.
 - `src/accounting.ts` — the byte and entry counters behind `stats()`.
+- `src/temporary.ts` — unpredictable, exclusively created temporaries and the sweep that collects the ones an interrupted write left behind.
+- `src/schedule.ts` — the `compactInterval` timer. The only policy in the package; everything else is mechanism the caller drives.
 - `src/validate.ts` — option resolution, sequence checks, and the coded errors.
 - `src/cursor.ts` — frozen streaming snapshots and descriptor release.
 - `src/noop.ts` — the lifecycle without storage.

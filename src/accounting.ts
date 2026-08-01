@@ -1,4 +1,5 @@
 import type { WalAccounting } from "./scan.js";
+import type { WalStats } from "./types.js";
 
 /**
  * Bookkeeping for stats(), kept out of the WAL because nothing here decides
@@ -10,15 +11,14 @@ import type { WalAccounting } from "./scan.js";
  * covers it, which is the one place this costs memory rather than a counter.
  */
 export interface Accounting {
-  readonly bytes: number;
-  readonly reclaimableBytes: number;
-  readonly pendingEntries: number;
   /** Account for one record that reached the log. */
   record(seq: number, size: number): void;
   /** Absorb every pending record the checkpoint now covers. */
   advance(checkpointSeq: number): void;
   /** Compaction removed exactly the records that were reclaimable. */
   compacted(): void;
+  /** The public view, assembled where the numbers live. */
+  snapshot(lastSeq: number, checkpointSeq: number): WalStats;
 }
 
 // Consumed entries are left in place and skipped with an index, then dropped in
@@ -35,17 +35,6 @@ export function createAccounting(opened: WalAccounting): Accounting {
   let reclaimable = opened.reclaimableBytes;
 
   return {
-    get bytes() {
-      return total;
-    },
-    get reclaimableBytes() {
-      return reclaimable;
-    },
-    // Counts records actually in the file, which is what a caller means by
-    // backlog — not lastSeq - checkpoint, which assumes they are contiguous.
-    get pendingEntries() {
-      return seqs.length - head;
-    },
     record(seq, size) {
       total += size;
       seqs.push(seq);
@@ -69,6 +58,15 @@ export function createAccounting(opened: WalAccounting): Accounting {
     compacted() {
       total -= reclaimable;
       reclaimable = 0;
+    },
+    snapshot(lastSeq, checkpointSeq) {
+      return {
+        lastSeq,
+        checkpoint: checkpointSeq,
+        pendingEntries: seqs.length - head,
+        bytes: total,
+        reclaimableBytes: reclaimable,
+      };
     },
   };
 }

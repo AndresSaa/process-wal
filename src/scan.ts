@@ -4,6 +4,37 @@ import { decode, guardRecordSize } from "./record.js";
 import type { WalEntry } from "./types.js";
 import { isMissing } from "./validate.js";
 
+/**
+ * Walk a file one complete line at a time, holding one line plus one chunk
+ * rather than the file. The startup scan and compaction both need exactly
+ * this, and both run against the largest logs by definition — which is the
+ * case they exist for.
+ *
+ * The trailing remainder is delivered only if it is non-empty: a log left by
+ * healTail ends in a newline, so an empty tail is the absence of a record
+ * rather than a blank one.
+ */
+export function forEachLine(
+  fd: number,
+  maxReadEntryBytes: number | null,
+  onLine: (line: string) => void,
+): void {
+  const chunk = Buffer.allocUnsafe(64 * 1024);
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  let bytesRead: number;
+  do {
+    bytesRead = fs.readSync(fd, chunk);
+    pending += decoder.write(chunk.subarray(0, bytesRead));
+    guardRecordSize(pending.length, maxReadEntryBytes);
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) onLine(line);
+  } while (bytesRead > 0);
+  pending += decoder.end();
+  if (pending) onLine(pending);
+}
+
 export function readEntries<T>(path: string): Array<WalEntry<T>> {
   let raw: string;
   try {
@@ -54,11 +85,6 @@ export function scanAccounting<T>(
     throw error;
   }
 
-  // Startup validates the full log without loading it. The only unbounded value
-  // retained is one entry, already limited by maxEntryBytes on append.
-  const chunk = Buffer.allocUnsafe(64 * 1024);
-  const decoder = new StringDecoder("utf8");
-  let pending = "";
   let highest = 0;
   let bytes = 0;
   let reclaimableBytes = 0;
@@ -82,22 +108,7 @@ export function scanAccounting<T>(
     }
   };
   try {
-    let bytesRead: number;
-    do {
-      bytesRead = fs.readSync(fd, chunk);
-      pending += decoder.write(chunk.subarray(0, bytesRead));
-      guardRecordSize(pending.length, maxReadEntryBytes);
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) accept(line);
-    } while (bytesRead > 0);
-    pending += decoder.end();
-    // healTail leaves the file ending in a newline, so anything left here is
-    // an empty remainder rather than a record. A blank line *between* records
-    // reaches accept() above and fails loudly, like any complete-but-damaged
-    // record: appends never write one, so it means something else edited the
-    // log.
-    if (pending) accept(pending);
+    forEachLine(fd, maxReadEntryBytes, accept);
     return {
       lastSeq: highest,
       bytes,

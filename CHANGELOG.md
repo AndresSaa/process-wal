@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Error messages are more specific, while every `code` stays exactly as it was.
+  `invalid WAL entry` covered two different kinds of damage and now says which:
+  an envelope that is not an object, or one missing a usable `seq` or `value`.
+  The two `ERR_ENTRY_TOO_LARGE` messages name the option that set the limit —
+  `entry exceeds maxEntryBytes (1048576 bytes)` — rather than quoting a bare
+  number.
+
+  The stable `code` properties are the error contract, not the text, so nothing
+  documented has changed. Code matching on message strings would notice, which
+  is the reason the contract has never been the text.
+
 ## [1.5.0] - 2026-08-01
 
 ### Added

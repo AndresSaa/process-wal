@@ -5,15 +5,16 @@ import { createAccounting } from "./accounting.js";
 import { createFrozenCursor } from "./cursor.js";
 import { encode } from "./record.js";
 import { readEntries, scanAccounting } from "./scan.js";
+import { scheduleCompaction } from "./schedule.js";
 import {
-  discardTemporary,
   healTail,
   readCheckpoint,
   replaceFile,
-  sweepTemporaries,
   syncDirectory,
   writeCompacted,
+  writeFully,
 } from "./storage.js";
+import { discardTemporary, sweepTemporaries } from "./temporary.js";
 import type {
   CursorOptions,
   Wal,
@@ -22,7 +23,13 @@ import type {
   WalOptions,
   WalStats,
 } from "./types.js";
-import { checkSeq, fail, resolveOptions, walClosed } from "./validate.js";
+import {
+  assertSequenceSpace,
+  checkSeq,
+  fail,
+  resolveOptions,
+  walClosed,
+} from "./validate.js";
 
 const debug = debuglog("process-wal");
 
@@ -59,9 +66,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
 
   const writeAll = (data: Buffer): void => {
     try {
-      let offset = 0;
-      while (offset < data.length)
-        offset += fs.writeSync(fd, data, offset, data.length - offset);
+      writeFully(fd, data);
       if (fsync) fs.fsyncSync(fd);
     } catch (error) {
       // The record is now either partly on disk or written but unflushed, and
@@ -77,9 +82,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
 
   const append = (value: T): number => {
     assertUsable();
-    if (lastSeq === Number.MAX_SAFE_INTEGER) {
-      throw new RangeError("WAL sequence number space is exhausted");
-    }
+    assertSequenceSpace(lastSeq, 1);
     const data = encode(lastSeq + 1, value, maxEntryBytes);
     writeAll(data);
     // Publish the seq only after the full record reaches the selected
@@ -92,9 +95,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   const appendMany = (values: T[]): number[] => {
     assertUsable();
     if (values.length === 0) return [];
-    if (values.length > Number.MAX_SAFE_INTEGER - lastSeq) {
-      throw new RangeError("WAL sequence number space is exhausted");
-    }
+    assertSequenceSpace(lastSeq, values.length);
     // Encode the whole batch before writing any of it, so a value that cannot
     // be serialised fails the call instead of leaving part of a batch behind.
     const records = values.map((value, index) =>
@@ -185,13 +186,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
 
   const stats = (): WalStats => {
     assertUsable();
-    return {
-      lastSeq,
-      checkpoint: checkpointSeq,
-      pendingEntries: measured.pendingEntries,
-      bytes: measured.bytes,
-      reclaimableBytes: measured.reclaimableBytes,
-    };
+    return measured.snapshot(lastSeq, checkpointSeq);
   };
 
   // Idempotent, unlike every other method. Releasing a resource twice is what
@@ -207,20 +202,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   if (compactInterval !== null) {
-    timer = setInterval(() => {
-      try {
-        compact();
-      } catch (error) {
-        // Nobody is waiting on this call, so swallowing it would let the log
-        // grow unbounded with no signal. A warning reaches stderr by default
-        // without killing a process whose durability is still intact.
-        process.emitWarning(
-          `automatic compaction failed: ${(error as Error).message}`,
-          "ProcessWalWarning",
-        );
-      }
-    }, compactInterval);
-    timer.unref();
+    timer = scheduleCompaction(compact, compactInterval);
   }
 
   return {
