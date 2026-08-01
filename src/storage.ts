@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { debuglog } from "node:util";
-import { decode } from "./record.js";
+import { decode, guardRecordSize } from "./record.js";
 import { join } from "node:path";
 import { isMissing } from "./validate.js";
 
@@ -53,6 +53,7 @@ export function writeSurvivors(
   target: string,
   keepAbove: number,
   durable: boolean,
+  maxReadEntryBytes: number | null = null,
 ): void {
   const input = fs.openSync(source, "r");
   const output = fs.openSync(target, "wx");
@@ -75,6 +76,7 @@ export function writeSurvivors(
     do {
       bytesRead = fs.readSync(input, chunk);
       pending += decoder.write(chunk.subarray(0, bytesRead));
+      guardRecordSize(pending.length, maxReadEntryBytes);
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
       for (const line of lines) keep(line);
@@ -98,10 +100,11 @@ export function writeCompacted(
   walPath: string,
   keepAbove: number,
   durable: boolean,
+  maxReadEntryBytes: number | null = null,
 ): string {
   const tmp = temporaryFor(walPath);
   try {
-    writeSurvivors(walPath, tmp, keepAbove, durable);
+    writeSurvivors(walPath, tmp, keepAbove, durable, maxReadEntryBytes);
   } catch (error) {
     discardTemporary(tmp);
     throw error;
@@ -109,13 +112,31 @@ export function writeCompacted(
   return tmp;
 }
 
+// The checkpoint file holds one integer — about sixteen bytes. Reading it whole
+// meant a directory entry of any size was pulled into memory before being
+// parsed, and a corrupt one is discarded anyway. Nothing legitimate is near
+// this, so anything past it is treated as the corruption it is.
+const MAX_CHECKPOINT_BYTES = 64;
+
 export function readCheckpoint(path: string): number {
-  let raw: string;
+  let fd: number;
   try {
-    raw = fs.readFileSync(path, "utf8").trim();
+    fd = fs.openSync(path, "r");
   } catch (error) {
     if (isMissing(error)) return 0;
     throw error;
+  }
+  let raw: string;
+  try {
+    if (fs.fstatSync(fd).size > MAX_CHECKPOINT_BYTES) {
+      debug("checkpoint is implausibly large; falling back to 0");
+      return 0;
+    }
+    const buffer = Buffer.allocUnsafe(MAX_CHECKPOINT_BYTES);
+    const read = fs.readSync(fd, buffer, 0, MAX_CHECKPOINT_BYTES, 0);
+    raw = buffer.subarray(0, read).toString("utf8").trim();
+  } finally {
+    fs.closeSync(fd);
   }
   const seq = Number(raw);
   if (/^\d+$/.test(raw) && Number.isSafeInteger(seq)) return seq;

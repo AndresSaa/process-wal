@@ -27,7 +27,7 @@ import { checkSeq, fail, resolveOptions, walClosed } from "./validate.js";
 const debug = debuglog("process-wal");
 
 export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
-  const { dir, fsync, compactInterval, maxEntryBytes } =
+  const { dir, fsync, compactInterval, maxEntryBytes, maxReadEntryBytes } =
     resolveOptions(options);
 
   fs.mkdirSync(dir, { recursive: true });
@@ -40,7 +40,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   let checkpointSeq = readCheckpoint(checkpointPath);
   // The same pass that validates the log measures it, so stats() never reads
   // the filesystem: the accounting is maintained from here on.
-  const opened = scanAccounting<T>(walPath, checkpointSeq);
+  const opened = scanAccounting<T>(walPath, checkpointSeq, maxReadEntryBytes);
   const measured = createAccounting(opened);
   let lastSeq = Math.max(checkpointSeq, opened.lastSeq);
   let fd = fs.openSync(walPath, "a");
@@ -127,7 +127,12 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
   };
 
   const compactNow = (): void => {
-    const tmp = writeCompacted(walPath, checkpointSeq, fsync);
+    const tmp = writeCompacted(
+      walPath,
+      checkpointSeq,
+      fsync,
+      maxReadEntryBytes,
+    );
     // Windows refuses to rename over an open file, so the writer closes first.
     // Restoring it is therefore this function's job on every path out: an
     // instance left holding a closed descriptor fails every later append.
@@ -161,6 +166,7 @@ export function createWal<T = unknown>(options: WalOptions = {}): Wal<T> {
       walPath,
       checkpointSeq,
       fromSeq,
+      maxReadEntryBytes,
       onRelease: releaseCursor,
     });
     activeCursors += 1;

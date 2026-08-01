@@ -195,3 +195,70 @@ describe("restart and corruption recovery", () => {
     wal.close();
   });
 });
+
+describe("read limits", () => {
+  it("ignores an implausibly large checkpoint instead of reading it", () => {
+    const dir = tempDir();
+    writeFileSync(`${dir}/wal.jsonl`, '{"seq":1,"value":"one"}\n');
+    // The file holds an integer. Anything near this size is corruption, and a
+    // corrupt checkpoint already falls back to zero rather than refusing.
+    writeFileSync(`${dir}/wal.checkpoint`, "9".repeat(4 * 1024 * 1024));
+
+    const before = process.memoryUsage().heapUsed;
+    const wal = createWal({ dir });
+
+    expect(wal.stats().checkpoint).toBe(0);
+    expect(wal.replay()).toHaveLength(1);
+    // It was never read: 4 MiB would show here if it had been.
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(
+      2 * 1024 * 1024,
+    );
+    wal.close();
+  });
+
+  it("reads a record larger than maxEntryBytes when no read limit is set", () => {
+    // A log written with a larger maxEntryBytes must keep opening after the
+    // option is lowered. Enforcing the write limit on reads would turn a
+    // configuration change into data loss, which is why this is opt-in.
+    const dir = tempDir();
+    const first = createWal<string>({ dir, maxEntryBytes: 1024 * 1024 });
+    first.append("x".repeat(200_000));
+    first.close();
+
+    const second = createWal<string>({ dir, maxEntryBytes: 1024 });
+    expect(second.replay()).toHaveLength(1);
+    second.close();
+  });
+
+  it("refuses an oversized record when a read limit is set", async () => {
+    const dir = tempDir();
+    const first = createWal<string>({ dir });
+    first.append("small");
+    first.append("x".repeat(200_000));
+    first.close();
+
+    expect(() => createWal({ dir, maxReadEntryBytes: 50_000 })).toThrow(
+      expect.objectContaining({ code: "ERR_ENTRY_TOO_LARGE" }),
+    );
+
+    // Generous enough for the record, so the same log opens and streams.
+    const wal = createWal<string>({ dir, maxReadEntryBytes: 1024 * 1024 });
+    expect(wal.replay()).toHaveLength(2);
+    const seen: number[] = [];
+    for await (const entry of wal.cursor()) seen.push(entry.seq);
+    expect(seen).toEqual([1, 2]);
+    wal.compact();
+    wal.close();
+  });
+
+  it("validates the read limit like every other option", () => {
+    for (const value of [0, -1, 1.5, "big"]) {
+      expect(() =>
+        createWal({ dir: tempDir(), maxReadEntryBytes: value } as never),
+      ).toThrow(RangeError);
+    }
+    // null is the documented way to say "no limit".
+    const wal = createWal({ dir: tempDir(), maxReadEntryBytes: null });
+    wal.close();
+  });
+});

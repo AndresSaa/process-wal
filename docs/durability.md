@@ -112,9 +112,15 @@ increasing sequence number. Bytes altered in a way that stays valid — a digit
 changed inside a value — replay as though nothing happened. The log detects
 truncation and structural damage, not silent corruption.
 
-**`maxEntryBytes` bounds writes, not reads.** It rejects an oversized record at
-`append`; it does not cap what open, `replay()`, `cursor()` or compaction will
-read back. A record already on disk is read whatever its size.
+**`maxEntryBytes` bounds writes; `maxReadEntryBytes` bounds reads.** The first
+rejects an oversized record at `append`. The second, off by default, rejects one
+already on disk — at open, which every other read is downstream of. They are
+separate because making them one number would mean lowering the limit made an
+existing log unreadable, turning a configuration change into data loss.
+
+The checkpoint file is bounded unconditionally: it holds a single integer, so
+anything larger than a few dozen bytes is treated as the corruption it is and
+falls back to zero, exactly like an unparseable one.
 
 **Back up by copying the directory with the writer stopped.** There is no
 online-backup mechanism, and copying `wal.jsonl` while appends are in flight can

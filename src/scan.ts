@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
-import { decode } from "./record.js";
+import { decode, guardRecordSize } from "./record.js";
 import type { WalEntry } from "./types.js";
 import { isMissing } from "./validate.js";
 
@@ -37,6 +37,7 @@ export interface WalAccounting {
 export function scanAccounting<T>(
   path: string,
   checkpointSeq: number,
+  maxReadEntryBytes: number | null = null,
 ): WalAccounting {
   const empty: WalAccounting = {
     lastSeq: 0,
@@ -85,6 +86,7 @@ export function scanAccounting<T>(
     do {
       bytesRead = fs.readSync(fd, chunk);
       pending += decoder.write(chunk.subarray(0, bytesRead));
+      guardRecordSize(pending.length, maxReadEntryBytes);
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
       for (const line of lines) accept(line);
