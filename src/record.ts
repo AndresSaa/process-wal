@@ -6,7 +6,15 @@ import { fail } from "./validate.js";
 // interrupted mid-write, and healTail truncates it before anything else runs.
 
 export function decode<T>(line: string): WalEntry<T> {
-  const entry = JSON.parse(line) as Partial<WalEntry<T>>;
+  const parsed: unknown = JSON.parse(line);
+  // `null` parses successfully and is not an object, so reading .seq off it
+  // throws TypeError rather than the SyntaxError the contract promises for a
+  // damaged record. Arrays and primitives are rejected here for the same
+  // reason: the envelope is an object or the record is not a record.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new SyntaxError("invalid WAL entry");
+  }
+  const entry = parsed as Partial<WalEntry<T>>;
   if (
     !Number.isSafeInteger(entry.seq) ||
     (entry.seq as number) < 1 ||

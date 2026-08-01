@@ -92,6 +92,7 @@ Invalid options throw `RangeError` immediately, at construction:
 createWal({ dir: "" }); // RangeError
 createWal({ maxEntryBytes: 0 }); // RangeError
 createWal({ compactInterval: -1 }); // RangeError — use null to disable
+createWal({ fsync: "false" }); // RangeError — checked by type, not truthiness
 ```
 
 ## `append`

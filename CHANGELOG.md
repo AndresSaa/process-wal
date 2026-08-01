@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-01
+
+### Fixed
+
+- Options are validated by type, not by truthiness. `{ fsync: "false" }` was
+  accepted and, being a non-empty string, turned flushing **on** — the opposite
+  of what it reads like. It now throws `RangeError` at construction, which is
+  what the README already promised. `dir` and `maxEntryBytes` are checked the
+  same way.
+- A record that parses as JSON but is not a record envelope now fails with
+  `SyntaxError` like every other damaged record. `null` in particular reached
+  the sequence check and threw `TypeError`, which no documentation mentions.
+  Numbers, strings, arrays and booleans are covered too.
+- A blank line in the log refuses to open instead of being skipped. An append
+  never writes one, so it means the log was edited by something else — and
+  skipping it left `stats().bytes` disagreeing with the file on disk.
+- `createNoopWal()` refuses to issue a sequence number past
+  `Number.MAX_SAFE_INTEGER`, and validates `checkpoint` input, as the real WAL
+  already did. A dependency-injection seam is only useful if it fails where the
+  thing it stands in for fails.
+
+Two of these turn something that used to be accepted into an error. Both are
+cases the documentation already described as errors, but a log containing a
+blank line — or code passing a string for `fsync` — will notice the change.
+
 ## [1.4.0] - 2026-08-01
 
 ### Added

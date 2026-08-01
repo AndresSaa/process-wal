@@ -527,3 +527,53 @@ describe("accounting with gapped sequences", () => {
     wal.close();
   });
 });
+
+describe("option validation matches what the readme promises", () => {
+  it("rejects values of the wrong type, not just falsy ones", () => {
+    const bad: Array<Record<string, unknown>> = [
+      { fsync: "false" }, // a truthiness test would turn this one ON
+      { fsync: "true" },
+      { fsync: 1 },
+      { dir: 42 },
+      { dir: "" },
+      { maxEntryBytes: 0 },
+      { maxEntryBytes: 1.5 },
+      { compactInterval: -1 },
+    ];
+    for (const options of bad) {
+      expect(() => createWal({ dir: tempDir(), ...options } as never)).toThrow(
+        RangeError,
+      );
+    }
+  });
+
+  it("still accepts every documented default", () => {
+    const wal = createWal({
+      dir: tempDir(),
+      fsync: false,
+      compactInterval: null,
+      maxEntryBytes: 1024,
+    });
+    expect(wal.stats().lastSeq).toBe(0);
+    wal.close();
+  });
+});
+
+describe("createNoopWal fails where the real WAL fails", () => {
+  it("refuses to issue an unsafe sequence number", () => {
+    const wal = createNoopWal<string>();
+    wal.checkpoint(Number.MAX_SAFE_INTEGER);
+
+    expect(() => wal.append("one")).toThrow(RangeError);
+    expect(() => wal.appendMany(["one"])).toThrow(RangeError);
+    // The seam is only useful if it breaks where the real one breaks.
+    expect(wal.stats().lastSeq).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("validates checkpoint input like the real WAL", () => {
+    const wal = createNoopWal<string>();
+    expect(() => wal.checkpoint(-1)).toThrow(RangeError);
+    expect(() => wal.checkpoint(1.5)).toThrow(RangeError);
+    wal.close();
+  });
+});
