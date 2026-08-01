@@ -86,6 +86,45 @@ Set `NODE_DEBUG=process-wal` to inspect heal-on-open, deferred compaction, and c
 
 The optional `compactInterval` timer is unref'ed, so it cannot keep a process alive. Nothing awaits that timer, so a failure inside it is reported with `process.emitWarning` — visible on stderr by default and catchable via `process.on("warning", …)` — rather than silently leaving the log to grow.
 
+## Operating it
+
+Things the contract implies but never said out loud.
+
+**Single writer means one live instance per directory** — in one process, not
+one process per machine. Two `createWal({ dir })` calls against the same
+directory, in the same process or across worker threads, are two writers. The
+package does not lock and cannot detect it; the result is interleaved sequence
+numbers and a log that refuses to open.
+
+**The log is plaintext.** Values are stored as the JSON you passed, readable by
+anyone who can read the directory. The library creates files with whatever your
+umask gives and never changes their mode, so the directory's permissions are the
+only thing protecting them. Do not append secrets you would not write to a log
+file, and keep the directory private to the account running the process — which
+[SECURITY.md](../SECURITY.md) also requires for a different reason.
+
+**Compaction needs headroom.** It writes the surviving records to a second file
+before replacing the original, so it briefly needs free space for both. A
+compaction that runs out of disk fails and leaves the original untouched.
+
+**There are no checksums.** A record is accepted if it is valid JSON with an
+increasing sequence number. Bytes altered in a way that stays valid — a digit
+changed inside a value — replay as though nothing happened. The log detects
+truncation and structural damage, not silent corruption.
+
+**`maxEntryBytes` bounds writes, not reads.** It rejects an oversized record at
+`append`; it does not cap what open, `replay()`, `cursor()` or compaction will
+read back. A record already on disk is read whatever its size.
+
+**Back up by copying the directory with the writer stopped.** There is no
+online-backup mechanism, and copying `wal.jsonl` while appends are in flight can
+capture a torn tail — which heals on open, but only for the copy that also
+carries the matching `wal.checkpoint`.
+
+**The on-disk format is part of the contract.** One JSON object per line, with
+`seq` and `value`, terminated by a newline. Changing it is a major version, so a
+log written by any 1.x can be opened by any later 1.x.
+
 ## What is tested
 
 Real-filesystem tests are the executable specification, not mocks. The suite exercises torn writes, corrupt checkpoints, deferred compaction on Windows, `SIGKILL` recovery in a spawned child process, and bounded RSS for both cursors and compaction, on Node 22 and 24 across Linux, macOS, and Windows.

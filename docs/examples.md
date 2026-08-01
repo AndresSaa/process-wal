@@ -474,8 +474,8 @@ not exported, so match on `code` rather than `instanceof`.
 | ---------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
 | `ERR_WAL_CLOSED`             | every method, after `close()` | The instance is done. Make a new one.                                       |
 | `ERR_WAL_UNUSABLE`           | every method except `close()` | A write failed partway; this instance can no longer tell what reached disk. |
-| `ERR_ENTRY_NOT_SERIALIZABLE` | `append`                      | `JSON.stringify` cannot represent the value.                                |
-| `ERR_ENTRY_TOO_LARGE`        | `append`                      | The record exceeds `maxEntryBytes`.                                         |
+| `ERR_ENTRY_NOT_SERIALIZABLE` | `append`, `appendMany`        | `JSON.stringify` cannot represent the value.                                |
+| `ERR_ENTRY_TOO_LARGE`        | `append`, `appendMany`        | The record exceeds `maxEntryBytes`.                                         |
 | —                            | `createWal`                   | `RangeError` for invalid options.                                           |
 | —                            | `createWal`                   | `SyntaxError` for a corrupt log. See below.                                 |
 

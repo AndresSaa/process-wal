@@ -10,7 +10,7 @@ SQLite has shipped inside the Node runtime without a flag since v22.13 and v23.4
 
 What it does not give you is the WAL _pattern_. A durable append-and-replay-from-checkpoint cycle on top of `node:sqlite` means designing: a table with monotonic sequencing, a durable checkpoint marker updated in the same transaction as nothing else, a delete-and-`VACUUM` policy so the file does not grow forever, a `synchronous` pragma decision, and an answer for what happens when the process dies mid-transaction.
 
-That is a real afternoon, and most of the bugs in this space live in the recovery path rather than the happy path. If you are going to write that code anyway because you also need queries, write it on SQLite. If append-and-replay is genuinely all you want, six methods is a smaller commitment than a schema.
+That is a real afternoon, and most of the bugs in this space live in the recovery path rather than the happy path. If you are going to write that code anyway because you also need queries, write it on SQLite. If append-and-replay is genuinely all you want, eight methods is a smaller commitment than a schema.
 
 ## `better-sqlite3`
 

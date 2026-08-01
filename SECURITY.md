@@ -61,6 +61,11 @@ as security reports:
 - A complete but unparseable record refusing to open the log. That is
   deliberate: skipping it would silently drop work the library already
   acknowledged.
+- Memory proportional to a log you wrote yourself. `maxEntryBytes` bounds what
+  `append` accepts, not what a later read returns, and `replay()` materialises
+  the log by design. A crafted record that drives memory growth _out of
+  proportion to its own size_ is in scope; one that is simply large is the
+  documented cost of the record you stored.
 - Replacing `wal.jsonl` or `wal.checkpoint` themselves with a symlink. Node
   offers no portable way to open an existing file without following a link —
   `O_NOFOLLOW` does not exist on Windows — so **the WAL directory must be

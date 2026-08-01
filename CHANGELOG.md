@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- Corrected counts and lists that had drifted behind the API: the package is
+  described as eight methods rather than six, `appendMany` is named in the
+  synchronous-methods sentence, and the error tables assign the serialisation
+  and size errors to `appendMany` as well as `append`.
+- `docs/durability.md` gains an "Operating it" section for the things the
+  contract implied but never stated: that **single writer means one live
+  instance per directory**, in one process, and is neither locked nor detected;
+  that the log is plaintext under whatever permissions your umask gives; that
+  compaction briefly needs room for a second copy; that there are **no
+  checksums**, so altered bytes that stay valid JSON replay as though nothing
+  happened; that backups mean copying the directory with the writer stopped; and
+  that the on-disk format is part of the contract, so any 1.x can open a log
+  written by any other.
+- `maxEntryBytes` is described as what it is — a limit on writes. It does not
+  cap what open, `replay()`, `cursor()` or compaction read back, and
+  `SECURITY.md` now draws the memory boundary accordingly: growth out of
+  proportion to a record's own size is in scope, a large record you stored
+  yourself is not.
+
 ## [1.4.1] - 2026-08-01
 
 ### Fixed
