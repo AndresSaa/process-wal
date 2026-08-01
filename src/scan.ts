@@ -64,7 +64,6 @@ export function scanAccounting<T>(
   const pendingSeqs: number[] = [];
   const pendingSizes: number[] = [];
   const accept = (line: string): void => {
-    if (!line) return;
     const entry = decode<T>(line);
     if (entry.seq <= highest) {
       throw new SyntaxError("WAL sequence numbers must increase");
@@ -91,7 +90,12 @@ export function scanAccounting<T>(
       for (const line of lines) accept(line);
     } while (bytesRead > 0);
     pending += decoder.end();
-    accept(pending);
+    // healTail leaves the file ending in a newline, so anything left here is
+    // an empty remainder rather than a record. A blank line *between* records
+    // reaches accept() above and fails loudly, like any complete-but-damaged
+    // record: appends never write one, so it means something else edited the
+    // log.
+    if (pending) accept(pending);
     return {
       lastSeq: highest,
       bytes,

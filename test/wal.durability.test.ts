@@ -162,4 +162,36 @@ describe("restart and corruption recovery", () => {
 
     expect(() => createWal({ dir })).toThrow(SyntaxError);
   });
+
+  it("rejects a complete but structurally invalid record with SyntaxError", () => {
+    // Each of these parses as JSON and is not a record. `null` used to reach
+    // the seq check and throw TypeError, which is not the documented contract.
+    for (const line of ["null", "42", '"a string"', "[1,2]", "true"]) {
+      const dir = tempDir();
+      writeFileSync(`${dir}/wal.jsonl`, `${line}\n`);
+      expect(() => createWal({ dir })).toThrow(SyntaxError);
+    }
+  });
+
+  it("refuses a blank line rather than silently miscounting it", () => {
+    // An append never writes a bare newline, so one means something else edited
+    // the log. Skipping it left stats().bytes disagreeing with the file.
+    const onlyNewline = tempDir();
+    writeFileSync(`${onlyNewline}/wal.jsonl`, "\n");
+    expect(() => createWal({ dir: onlyNewline })).toThrow(SyntaxError);
+
+    const between = tempDir();
+    writeFileSync(
+      `${between}/wal.jsonl`,
+      '{"seq":1,"value":"one"}\n\n{"seq":2,"value":"two"}\n',
+    );
+    expect(() => createWal({ dir: between })).toThrow(SyntaxError);
+
+    // An empty file is still a fresh log, not a damaged one.
+    const empty = tempDir();
+    writeFileSync(`${empty}/wal.jsonl`, "");
+    const wal = createWal({ dir: empty });
+    expect(wal.stats()).toMatchObject({ lastSeq: 0, bytes: 0 });
+    wal.close();
+  });
 });

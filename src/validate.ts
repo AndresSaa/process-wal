@@ -40,8 +40,17 @@ export function resolveOptions(options: WalOptions): ResolvedOptions {
     compactInterval = null,
     maxEntryBytes = DEFAULT_MAX_ENTRY_BYTES,
   } = options;
-  if (!dir || !Number.isSafeInteger(maxEntryBytes) || maxEntryBytes < 1) {
-    throw new RangeError("dir and maxEntryBytes must be valid");
+  if (typeof dir !== "string" || !dir) {
+    throw new RangeError("dir must be a non-empty string");
+  }
+  // Checked by type, not by truthiness: `fsync: "false"` is a string, and a
+  // truthiness test would silently turn the safest-looking value into the
+  // slowest one.
+  if (typeof fsync !== "boolean") {
+    throw new RangeError("fsync must be a boolean");
+  }
+  if (!Number.isSafeInteger(maxEntryBytes) || maxEntryBytes < 1) {
+    throw new RangeError("maxEntryBytes must be a positive safe integer");
   }
   if (
     compactInterval !== null &&

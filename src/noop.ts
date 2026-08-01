@@ -1,5 +1,5 @@
 import type { Wal, WalCursor, WalEntry, WalStats } from "./types.js";
-import { walClosed } from "./validate.js";
+import { checkSeq, walClosed } from "./validate.js";
 
 export function createNoopWal<T = unknown>(): Wal<T> {
   let seq = 0;
@@ -8,6 +8,14 @@ export function createNoopWal<T = unknown>(): Wal<T> {
   const check = (): void => {
     if (closed) throw walClosed();
   };
+  // The seam is only useful if it fails where the real WAL fails, so the
+  // sequence space is exhausted here too rather than silently going unsafe.
+  const exhausted = (): void => {
+    if (seq === Number.MAX_SAFE_INTEGER) {
+      throw new RangeError("WAL sequence number space is exhausted");
+    }
+  };
+
   // Mirrors createWal: close is the one method safe to call twice.
   const close = (): void => {
     closed = true;
@@ -16,14 +24,19 @@ export function createNoopWal<T = unknown>(): Wal<T> {
   return {
     append() {
       check();
+      exhausted();
       return ++seq;
     },
     appendMany(values: T[]) {
       check();
+      if (values.length > Number.MAX_SAFE_INTEGER - seq) {
+        throw new RangeError("WAL sequence number space is exhausted");
+      }
       return values.map(() => ++seq);
     },
     checkpoint(nextCheckpoint: number) {
       check();
+      checkSeq(nextCheckpoint, "checkpoint");
       if (nextCheckpoint > checkpointSeq) {
         checkpointSeq = nextCheckpoint;
         seq = Math.max(seq, nextCheckpoint);
