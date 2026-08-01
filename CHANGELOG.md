@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-08-01
+
+### Fixed
+
+- `stats()` reported the wrong backlog when the pending records were not
+  contiguous. Checkpoint accounting advanced by the numeric distance between
+  checkpoints, which assumes the record above a checkpoint is the next sequence
+  number. After a corrupt checkpoint falls back to zero — documented, safe
+  behaviour — the surviving records can start at any sequence number, and
+  `checkpoint(1)` would then mark an unrelated record as covered:
+  `pendingEntries` dropped to 0 while `replay()` still returned an entry, and
+  `bytes` disagreed with the file after compaction. It now advances by comparing
+  sequence numbers, so contract invariant 9 holds whatever the log contains.
+
+- Checkpointing a large replayed backlog one entry at a time no longer does
+  quadratic work. Each checkpoint removed the covered prefix by copying the rest
+  of the array; it now moves an index. This is invisible below roughly 200,000
+  pending records, where the checkpoint's own write and rename dominate, and
+  decisive above it — the array work alone measures 47 seconds at 200,000
+  against 2 milliseconds.
+
 ## [1.3.1] - 2026-08-01
 
 ### Security

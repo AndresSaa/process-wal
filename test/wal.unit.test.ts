@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { createNoopWal, createWal } from "../src/index.js";
 import { cleanupTempDirs, tempDir } from "./helpers.js";
@@ -494,5 +494,36 @@ describe("createNoopWal", () => {
     expect(() => wal.append("closed")).toThrow(
       expect.objectContaining({ code: "ERR_WAL_CLOSED" }),
     );
+  });
+});
+
+describe("accounting with gapped sequences", () => {
+  it("stays exact when the pending records are not contiguous", () => {
+    const dir = tempDir();
+    const first = createWal<number>({ dir });
+    for (let i = 1; i <= 101; i += 1) first.append(i);
+    first.checkpoint(100);
+    first.compact();
+    first.close();
+
+    // A corrupt checkpoint falls back to 0, which is documented and safe. What
+    // it leaves behind is a log whose only record is seq 101 — pending records
+    // that do not start at 1. Counting by numeric distance from the checkpoint
+    // silently maps checkpoint(1) onto that record.
+    writeFileSync(`${dir}/wal.checkpoint`, "not-json");
+    const wal = createWal<number>({ dir });
+    expect(wal.stats().pendingEntries).toBe(1);
+
+    wal.checkpoint(1);
+
+    // Nothing was covered: the only record is seq 101, far above checkpoint 1.
+    expect(wal.replay()).toHaveLength(1);
+    expect(wal.stats().pendingEntries).toBe(1);
+    expect(wal.stats().reclaimableBytes).toBe(0);
+
+    wal.compact();
+    expect(wal.stats().bytes).toBe(statSync(`${dir}/wal.jsonl`).size);
+    expect(wal.replay().map((entry) => entry.value)).toEqual([101]);
+    wal.close();
   });
 });

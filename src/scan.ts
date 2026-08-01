@@ -20,7 +20,12 @@ export interface WalAccounting {
   lastSeq: number;
   bytes: number;
   reclaimableBytes: number;
-  /** Byte length of each record above the checkpoint, in sequence order. */
+  /**
+   * Sequence number and byte length of each record above the checkpoint, in
+   * order. Parallel arrays rather than objects: two numbers per pending record
+   * instead of an object header each, on the one structure here that grows.
+   */
+  pendingSeqs: number[];
   pendingSizes: number[];
 }
 
@@ -37,6 +42,7 @@ export function scanAccounting<T>(
     lastSeq: 0,
     bytes: 0,
     reclaimableBytes: 0,
+    pendingSeqs: [],
     pendingSizes: [],
   };
   let fd: number;
@@ -55,6 +61,7 @@ export function scanAccounting<T>(
   let highest = 0;
   let bytes = 0;
   let reclaimableBytes = 0;
+  const pendingSeqs: number[] = [];
   const pendingSizes: number[] = [];
   const accept = (line: string): void => {
     if (!line) return;
@@ -67,8 +74,12 @@ export function scanAccounting<T>(
     // every line counted here is one byte shorter than the record on disk.
     const size = Buffer.byteLength(line) + 1;
     bytes += size;
-    if (entry.seq <= checkpointSeq) reclaimableBytes += size;
-    else pendingSizes.push(size);
+    if (entry.seq <= checkpointSeq) {
+      reclaimableBytes += size;
+    } else {
+      pendingSeqs.push(entry.seq);
+      pendingSizes.push(size);
+    }
   };
   try {
     let bytesRead: number;
@@ -81,7 +92,13 @@ export function scanAccounting<T>(
     } while (bytesRead > 0);
     pending += decoder.end();
     accept(pending);
-    return { lastSeq: highest, bytes, reclaimableBytes, pendingSizes };
+    return {
+      lastSeq: highest,
+      bytes,
+      reclaimableBytes,
+      pendingSeqs,
+      pendingSizes,
+    };
   } finally {
     fs.closeSync(fd);
   }

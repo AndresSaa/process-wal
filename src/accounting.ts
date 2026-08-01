@@ -14,15 +14,23 @@ export interface Accounting {
   readonly reclaimableBytes: number;
   readonly pendingEntries: number;
   /** Account for one record that reached the log. */
-  record(size: number): void;
-  /** Absorb the records a checkpoint advance now covers. */
-  advance(coveredSeqs: number): void;
+  record(seq: number, size: number): void;
+  /** Absorb every pending record the checkpoint now covers. */
+  advance(checkpointSeq: number): void;
   /** Compaction removed exactly the records that were reclaimable. */
   compacted(): void;
 }
 
+// Consumed entries are left in place and skipped with an index, then dropped in
+// one pass once they outnumber the live ones. Splicing the prefix on every
+// checkpoint made checkpointing a replayed backlog one entry at a time — the
+// pattern the readme shows — quadratic in the size of that backlog.
+const MIN_COMPACTION = 64;
+
 export function createAccounting(opened: WalAccounting): Accounting {
+  let seqs = opened.pendingSeqs;
   let sizes = opened.pendingSizes;
+  let head = 0;
   let total = opened.bytes;
   let reclaimable = opened.reclaimableBytes;
 
@@ -33,21 +41,30 @@ export function createAccounting(opened: WalAccounting): Accounting {
     get reclaimableBytes() {
       return reclaimable;
     },
-    // The array length is the ground truth, not lastSeq - checkpoint: it counts
-    // records that are actually in the file.
+    // Counts records actually in the file, which is what a caller means by
+    // backlog — not lastSeq - checkpoint, which assumes they are contiguous.
     get pendingEntries() {
-      return sizes.length;
+      return seqs.length - head;
     },
-    record(size) {
+    record(seq, size) {
       total += size;
+      seqs.push(seq);
       sizes.push(size);
     },
-    advance(coveredSeqs) {
-      // A checkpoint beyond the last append covers every pending record, hence
-      // the clamp.
-      const covered = Math.min(coveredSeqs, sizes.length);
-      for (let i = 0; i < covered; i += 1) reclaimable += sizes[i];
-      sizes = sizes.slice(covered);
+    advance(checkpointSeq) {
+      // Compare sequence numbers rather than counting forward from the previous
+      // checkpoint. Pending records are only guaranteed to increase, not to be
+      // contiguous: a checkpoint that falls back to 0 after corruption leaves a
+      // log whose first surviving record can be any sequence number at all.
+      while (head < seqs.length && seqs[head] <= checkpointSeq) {
+        reclaimable += sizes[head];
+        head += 1;
+      }
+      if (head >= MIN_COMPACTION && head * 2 >= seqs.length) {
+        seqs = seqs.slice(head);
+        sizes = sizes.slice(head);
+        head = 0;
+      }
     },
     compacted() {
       total -= reclaimable;
