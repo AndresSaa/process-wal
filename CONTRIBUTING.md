@@ -34,8 +34,9 @@ npm ci
 npm test          # build, then unit + durability + integration
 npm run lint      # tsc --noEmit, eslint, prettier --check
 npm run coverage
-npm run lint:package
-npm run bench     # only when the append path changed
+npm run lint:package   # also loads the packed tarball, not just its types
+npm run bench          # only when the append path changed
+npm run check:diagrams # after editing .github/diagrams/readme-flow.mmd
 ```
 
 ## Tests
