@@ -6,7 +6,18 @@ updates:
     schedule:
       interval: "weekly"
     groups:
+      # Two groups with identical membership, because `applies-to` defaults to
+      # version updates: without the second one, security advisories bypass
+      # grouping entirely and arrive as one pull request per package. A single
+      # mermaid-cli upgrade landed as two that way. Both patterns take
+      # everything — a package with zero runtime dependencies has nothing here
+      # but dev tooling.
       dev-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security-advisories:
+        applies-to: security-updates
         patterns:
           - "*"
     ignore:
