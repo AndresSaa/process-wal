@@ -39,5 +39,20 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # Ungrouped, an action that exposes several paths arrives as one pull
+      # request per path. codeql-action is the case that proves it matters:
+      # `init` and `analyze` ship from one commit and the action refuses to run
+      # when they disagree, so the split bumps were red by construction and no
+      # merge order left main intact. Split upgrades are the only way these
+      # break, so they move together — same reasoning as the npm side above.
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
