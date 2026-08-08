@@ -122,6 +122,14 @@ describe("temporaries left by an interrupted write", () => {
     reopened.close();
   });
 
+  // Five storage flushes per iteration — the append, the checkpoint file and
+  // its directory, the compacted file and the directory its rename lands in —
+  // so a hundred in all. What that costs is a property of the host filesystem
+  // rather than of the code, the same reason the measured append range spans
+  // 0.47-1.49 ms between NTFS and ext4, and a loaded Windows runner has already
+  // blown the 5 s default once. Neither number below can come down to fit it:
+  // accumulation is what repetition exposes, and `fsync` is what puts the
+  // temporaries on the path being checked.
   it("does not accumulate temporaries across repeated writes", () => {
     const dir = tempDir();
     const wal = createWal<number>({ dir, fsync: true });
@@ -134,7 +142,7 @@ describe("temporaries left by an interrupted write", () => {
     const leftovers = readdirSync(dir).filter((name) => name.endsWith(".tmp"));
     expect(leftovers).toEqual([]);
     wal.close();
-  });
+  }, 30_000);
 });
 
 describe("an interrupted mutation leaves a usable instance", () => {
