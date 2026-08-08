@@ -286,10 +286,15 @@ applies to every agent and tool working in this repository, with no exceptions.
 - Squash-merge only; `main` history stays linear. Never force-push `main`; never
   skip hooks (`--no-verify`) or CI to get a merge through.
 - Merge requires green CI — lint + test + build across the **full Node × OS
-  matrix**: both active LTS lines on Linux, macOS and Windows, plus one leg on
-  Current so that `engines: >=22` is a claim something checks. Windows is a first-class target, not a footnote: the maintainer
-  develops on Windows, so no POSIX-only assumptions in tests (paths, signals,
-  rename semantics).
+  matrix**: both active LTS lines on Linux, macOS and Windows. Those legs are
+  the repository's required checks, and they are what a merge waits on. Windows
+  is a first-class target, not a footnote: the maintainer develops on Windows,
+  so no POSIX-only assumptions in tests (paths, signals, rename semantics).
+- One more leg runs Node Current, so `engines: >=22` stays a claim something
+  checks. It is deliberately **not** a required check: it tracks a release
+  nobody deploys yet, and an upstream regression there would otherwise block
+  every unrelated pull request in the repository. Read it before merging — but
+  it does not hold the merge.
 
 ### Quality gates
 
